@@ -11,7 +11,7 @@ def settings() -> Settings:
 
 def test_order_requires_exact_human_confirmation():
     service = ManualMockOrderService(settings(), httpx.Client(base_url="https://mockapi.kiwoom.com"))
-    with pytest.raises(ValueError, match="Refusing order"):
+    with pytest.raises(ValueError, match="주문을 거부"):
         service.buy_market(code="005930", quantity=1, confirmation="yes")
 
 
@@ -33,5 +33,5 @@ def test_market_buy_uses_mock_host_and_official_tr():
 
 def test_order_restricts_quantity_to_one_share():
     service = ManualMockOrderService(settings(), httpx.Client(base_url="https://mockapi.kiwoom.com"))
-    with pytest.raises(ValueError, match="exactly one share"):
+    with pytest.raises(ValueError, match="정확히 1주"):
         service.sell_market(code="005930", quantity=2, confirmation=MANUAL_CONFIRMATION)

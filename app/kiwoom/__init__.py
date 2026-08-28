@@ -1,2 +1,1 @@
-"""Safe client components for the Kiwoom mock REST API."""
-
+"""키움 모의 REST API용 안전한 클라이언트 구성 요소입니다."""

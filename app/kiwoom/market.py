@@ -1,4 +1,4 @@
-"""Domestic KRX market-data queries for the mock environment."""
+"""모의투자 환경의 국내 KRX 시세 조회 기능입니다."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ class MarketService:
     def quote(self, code: str) -> Quote:
         normalized = code.strip()
         if not (normalized.isdigit() and len(normalized) == 6):
-            raise ValueError("Stock code must be exactly six digits, for example 005930.")
+            raise ValueError("종목코드는 005930처럼 정확히 여섯 자리 숫자여야 합니다.")
         payload: dict[str, Any] = self._client.post(
             path="/api/dostk/stkinfo", tr_id="ka10001", body={"stk_cd": normalized}
         )

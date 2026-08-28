@@ -1,4 +1,4 @@
-"""Explicitly confirmed domestic-stock orders for the mock environment only."""
+"""명시적으로 확인된 모의투자 전용 국내주식 주문 기능입니다."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ class SubmittedOrder:
 
 
 class ManualMockOrderService:
-    """Order service with no retry and a mandatory human confirmation phrase."""
+    """재시도하지 않고 사람의 확인 문구를 반드시 요구하는 주문 서비스입니다."""
 
     def __init__(self, settings: Settings, client: httpx.Client | None = None) -> None:
         assert_mock_host(settings.api_host)
@@ -43,21 +43,21 @@ class ManualMockOrderService:
     def _submit(self, tr_id: str, code: str, quantity: int, confirmation: str) -> SubmittedOrder:
         assert_mock_host(self._settings.api_host)
         if confirmation != MANUAL_CONFIRMATION:
-            raise ValueError(f"Refusing order: pass --confirm {MANUAL_CONFIRMATION} exactly.")
+            raise ValueError(f"주문을 거부했습니다. --confirm {MANUAL_CONFIRMATION}을 정확히 입력하세요.")
         normalized_code = code.strip()
         if not (normalized_code.isdigit() and len(normalized_code) == 6):
-            raise ValueError("Stock code must be exactly six digits.")
+            raise ValueError("종목코드는 정확히 여섯 자리 숫자여야 합니다.")
         if quantity != 1:
-            raise ValueError("Manual MVP order is restricted to exactly one share.")
+            raise ValueError("수동 MVP 주문은 정확히 1주로 제한됩니다.")
 
         auth = KiwoomAuthClient(self._settings, self._client)
         try:
             token = auth.request_access_token()
         except AuthenticationError as exc:
-            raise KiwoomApiError(f"Authentication required for {tr_id}: {exc}") from exc
+            raise KiwoomApiError(f"{tr_id} 인증 필요: {exc}") from exc
 
         try:
-            # Never retry an order: its acceptance may be unknown after a timeout.
+            # 주문 접수 여부가 불분명해질 수 있으므로 절대 재시도하지 않습니다.
             response = self._client.post(
                 ORDER_PATH,
                 headers={
@@ -69,28 +69,28 @@ class ManualMockOrderService:
                     "dmst_stex_tp": "KRX",
                     "stk_cd": normalized_code,
                     "ord_qty": "1",
-                    "trde_tp": "3",  # market order, as documented by Kiwoom
+                    "trde_tp": "3",  # 키움 공식 명세의 시장가
                     "ord_uv": "",
                     "cond_uv": "",
                 },
             )
         except httpx.TimeoutException as exc:
             raise KiwoomApiError(
-                "Order request timed out. Do not resend; check order/fill status first."
+                "주문 요청 시간이 초과되었습니다. 재전송하지 말고 주문·체결 상태를 먼저 확인하세요."
             ) from exc
         except httpx.RequestError as exc:
             raise KiwoomApiError(
-                "Order request failed before confirmation. Do not resend; check order/fill status first."
+                "주문 요청이 완료되지 않았습니다. 재전송하지 말고 주문·체결 상태를 먼저 확인하세요."
             ) from exc
 
         try:
             payload = response.json()
         except ValueError as exc:
-            raise KiwoomApiError("Order response was not valid JSON. Do not resend; check status first.") from exc
+            raise KiwoomApiError("주문 응답이 올바른 JSON이 아닙니다. 재전송하지 말고 상태를 먼저 확인하세요.") from exc
         if response.is_error or payload.get("return_code") not in (None, 0, "0"):
-            message = payload.get("return_msg") or "No error message supplied"
+            message = payload.get("return_msg") or "오류 메시지가 제공되지 않았습니다"
             raise KiwoomApiError(f"{tr_id} rejected (HTTP {response.status_code}): {message}")
         order_number = str(payload.get("ord_no", ""))
         if not order_number:
-            raise KiwoomApiError("Order response has no order number. Do not resend; check status first.")
+            raise KiwoomApiError("주문 응답에 주문번호가 없습니다. 재전송하지 말고 상태를 먼저 확인하세요.")
         return SubmittedOrder(order_number=order_number, exchange=str(payload.get("dmst_stex_tp", "KRX")))

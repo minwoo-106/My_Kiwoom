@@ -34,6 +34,5 @@ def test_host_override_is_rejected(monkeypatch, tmp_path):
     monkeypatch.setenv("KIWOOM_SECRET_KEY", "secret")
     monkeypatch.setenv("KIWOOM_API_HOST", "https://api.kiwoom.com")
 
-    with pytest.raises(ConfigurationError, match="blocked permanently"):
+    with pytest.raises(ConfigurationError, match="영구적으로 차단"):
         Settings.load(tmp_path / "missing.env")
-

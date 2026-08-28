@@ -1,4 +1,4 @@
-"""Read-only domestic mock-account queries."""
+"""읽기 전용 국내주식 모의계좌 조회 기능입니다."""
 
 from __future__ import annotations
 

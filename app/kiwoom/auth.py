@@ -1,4 +1,4 @@
-"""OAuth client for Kiwoom's mock REST API only."""
+"""키움 모의투자 REST API 전용 OAuth 클라이언트입니다."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from app.config import Settings, assert_mock_host
 
 
 class AuthenticationError(RuntimeError):
-    """Raised for safe, human-readable authentication failures."""
+    """사람이 이해할 수 있는 안전한 인증 오류입니다."""
 
 
 @dataclass(frozen=True)
@@ -46,22 +46,22 @@ class KiwoomAuthClient:
                 },
             )
         except httpx.TimeoutException as exc:
-            raise AuthenticationError("Mock API request timed out. Check network and registered IP.") from exc
+            raise AuthenticationError("모의 API 요청 시간이 초과되었습니다. 네트워크와 등록 IP를 확인하세요.") from exc
         except httpx.RequestError as exc:
-            raise AuthenticationError("Could not reach Kiwoom mock API. Check network and DNS.") from exc
+            raise AuthenticationError("키움 모의 API에 연결할 수 없습니다. 네트워크와 DNS를 확인하세요.") from exc
 
         try:
             payload = response.json()
         except ValueError as exc:
-            raise AuthenticationError("Mock API returned an invalid JSON response.") from exc
+            raise AuthenticationError("모의 API가 올바르지 않은 JSON 응답을 반환했습니다.") from exc
 
         if response.is_error or payload.get("return_code") not in (None, 0, "0"):
-            message = payload.get("return_msg") or "No error message supplied"
-            raise AuthenticationError(f"Token issuance failed (HTTP {response.status_code}): {message}")
+            message = payload.get("return_msg") or "오류 메시지가 제공되지 않았습니다"
+            raise AuthenticationError(f"토큰 발급 실패(HTTP {response.status_code}): {message}")
 
         token = payload.get("token")
         token_type = payload.get("token_type")
         expires_at = payload.get("expires_dt")
         if not all(isinstance(value, str) and value for value in (token, token_type, expires_at)):
-            raise AuthenticationError("Token response is missing token, token_type, or expires_dt.")
+            raise AuthenticationError("토큰 응답에 token, token_type 또는 expires_dt가 없습니다.")
         return AccessToken(token=token, token_type=token_type, expires_at=expires_at)

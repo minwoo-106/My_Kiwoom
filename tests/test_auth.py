@@ -44,5 +44,5 @@ def test_api_error_is_human_readable():
 def test_invalid_json_is_reported_safely():
     transport = httpx.MockTransport(lambda request: httpx.Response(502, text="upstream unavailable"))
     with httpx.Client(base_url="https://mockapi.kiwoom.com", transport=transport) as http_client:
-        with pytest.raises(AuthenticationError, match="invalid JSON"):
+        with pytest.raises(AuthenticationError, match="올바르지 않은 JSON"):
             KiwoomAuthClient(settings(), http_client).request_access_token()
