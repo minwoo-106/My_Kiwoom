@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 
 from app.config import ConfigurationError, Settings
 from app.kiwoom.auth import AuthenticationError, KiwoomAuthClient
@@ -11,6 +12,9 @@ from app.kiwoom.client import KiwoomApiError, KiwoomReadClient
 from app.kiwoom.market import MarketService
 from app.kiwoom.orders import MANUAL_CONFIRMATION, ManualMockOrderService
 from app.monitoring.dashboard import DashboardDataProvider, run_dashboard
+from app.storage.sqlite import TradingStore
+from app.strategy.runner import DryRunStrategyRunner
+from app.strategy.settings import TradingSettings
 
 
 def _mask_account(account: str) -> str:
@@ -19,7 +23,7 @@ def _mask_account(account: str) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="키움 모의투자 MVP")
-    parser.add_argument("command", choices=["auth", "accounts", "portfolio", "quote", "manual-buy", "manual-sell", "dashboard"], help="실행할 기능")
+    parser.add_argument("command", choices=["auth", "accounts", "portfolio", "quote", "manual-buy", "manual-sell", "dashboard", "strategy-dry-run", "daily-summary"], help="실행할 기능")
     parser.add_argument("--stock-code", default="005930", help="조회할 KRX 6자리 종목코드")
     parser.add_argument("--quantity", type=int, default=1, help="수동 주문 수량(MVP에서는 1주만 허용)")
     parser.add_argument("--confirm", default="", help=f"주문에만 필요한 확인 문구: {MANUAL_CONFIRMATION}")
@@ -67,8 +71,29 @@ def main() -> int:
                 provider.close()
             return 0
 
+        if args.command == "daily-summary":
+            store = TradingStore()
+            try:
+                summary = store.daily_summary(datetime.now().strftime("%Y-%m-%d"))
+            finally:
+                store.close()
+            print(f"오늘 결과 ({summary.date}) · DRY RUN 기록")
+            print(f"- 신호 {summary.signals}회 / 차단 {summary.blocked}회 / 매수 {summary.buys}회 / 매도 {summary.sells}회")
+            print(f"- 실현손익: {summary.realized_profit:,}원")
+            return 0
+
         client = KiwoomReadClient(settings)
         try:
+            if args.command == "strategy-dry-run":
+                store = TradingStore()
+                try:
+                    results = DryRunStrategyRunner(MarketService(client), TradingSettings.load(), store).run_once()
+                finally:
+                    store.close()
+                print("Trend Pullback V1 Multi · DRY RUN (주문 전송 없음)")
+                for result in results:
+                    print(f"- {result.symbol}: {result.decision.status} · {result.decision.reason}")
+                return 0
             if args.command == "accounts":
                 accounts = AccountService(client).list_accounts()
                 print("모의투자 계좌:")

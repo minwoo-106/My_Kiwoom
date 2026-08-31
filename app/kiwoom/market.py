@@ -7,6 +7,7 @@ from typing import Any
 
 from app.kiwoom.account import _integer
 from app.kiwoom.client import KiwoomReadClient
+from app.strategy.core import Candle
 
 
 @dataclass(frozen=True)
@@ -38,3 +39,15 @@ class MarketService:
             change_rate=str(payload.get("flu_rt", "")),
             volume=_integer(payload.get("trde_qty")),
         )
+
+    def completed_15m_candles(self, code: str) -> list[Candle]:
+        """키움 공식 ka10080 응답에서 아직 진행 중인 마지막 15분봉을 제외합니다."""
+        normalized = code.strip()
+        if not (normalized.isdigit() and len(normalized) == 6):
+            raise ValueError("종목코드는 005930처럼 정확히 여섯 자리 숫자여야 합니다.")
+        payload = self._client.post(path="/api/dostk/chart", tr_id="ka10080", body={"stk_cd": normalized, "tic_scope": "15", "upd_stkpc_tp": "1"})
+        rows = payload.get("stk_min_pole_chart_qry", [])
+        candles = [Candle(timestamp=str(row.get("cntr_tm", "")), open=float(_integer(row.get("open_pric"))), high=float(_integer(row.get("high_pric"))), low=float(_integer(row.get("low_pric"))), close=float(_integer(row.get("cur_prc"))), volume=_integer(row.get("trde_qty"))) for row in rows if isinstance(row, dict)]
+        # API는 최신 순일 수 있으므로 시간 오름차순으로 정렬하며, 마지막 진행 봉은 전략에 넘기지 않습니다.
+        candles.sort(key=lambda candle: candle.timestamp)
+        return candles[:-1] if len(candles) > 1 else []

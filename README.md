@@ -54,6 +54,17 @@ MVP는 KRX 시장가 1주 주문만 허용하며, 명시적인 확인 문구가 
 
 현재 실제 데이터로 표시되는 항목은 모의 환경, API 상태, 예수금·총자산·손익·보유종목, 지정 종목 시세입니다. 자동 전략, Risk Manager, SQLite 거래 저장소는 아직 구현 전이므로 `NOT STARTED` 또는 `미연결`으로 표시됩니다. 값을 임의로 만들어 표시하지 않습니다.
 
+## Trend Pullback V1 Multi (DRY RUN)
+
+기본 감시 종목은 삼성전자·SK하이닉스·현대차·KB금융·서울식품의 5개입니다. 키움 공식 `ka10080` 15분봉을 이용해 상승 추세, 눌림, 반등 조건을 분석하지만 **주문은 전송하지 않습니다**.
+
+```powershell
+.\.venv\Scripts\python.exe -m app.main strategy-dry-run
+.\.venv\Scripts\python.exe -m app.main daily-summary
+```
+
+`strategy-dry-run`은 신호와 차단 사유를 SQLite에 저장합니다. `daily-summary`는 장 마감 후에도 그날의 신호 수·위험 차단 수·주문 기록·실현손익을 표시합니다. 현재 구현은 DRY RUN이므로 주문 기록과 실현손익은 0이 정상입니다.
+
 ## 테스트
 
 ```powershell
