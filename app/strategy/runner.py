@@ -121,7 +121,7 @@ class DryRunStrategyRunner:
                 if self.last_reconcile_error is None:
                     decision = self._submit_signal(symbol, state, decision)
                 state.status, state.reason = decision.status, decision.reason
-                self.store.record_signal(timestamp=datetime.now().isoformat(timespec="seconds"), symbol=symbol, strategy="Trend Pullback V1 Multi", state=decision.status, signal=decision.signal, score=decision.score, price=None, ema20=decision.ema_fast, ema60=decision.ema_slow, rsi=decision.rsi, atr=decision.atr, reason=decision.reason, mock_order_enabled=False)
+                self.store.record_signal(timestamp=datetime.now().isoformat(timespec="seconds"), symbol=symbol, strategy="Trend Pullback V1 Multi", state=decision.status, signal=decision.signal, score=decision.score, price=None, ema20=decision.ema_fast, ema60=decision.ema_slow, rsi=decision.rsi, atr=decision.atr, reason=decision.reason, mock_order_enabled=self.order_service is not None)
             except Exception as exc:
                 decision = Decision(StrategyStatus.ERROR, str(exc)); state.status, state.reason = decision.status, decision.reason
                 completed_price = None

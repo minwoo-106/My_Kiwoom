@@ -265,7 +265,8 @@ def run_auto_dashboard(settings: Settings, *, interval_seconds: float, console: 
         with Live(render_dashboard(DashboardState()), console=output, refresh_per_second=4, screen=True) as live:
             while True:
                 results = runner.run_once()
-                event_rows = [f"[{datetime.now():%H:%M:%S}] DRY RUN  {result.symbol} {result.decision.status} · {result.decision.reason}" for result in results]
+                label = "MOCK AUTO" if order_service else "DRY RUN"
+                event_rows = [f"[{datetime.now():%H:%M:%S}] {label}  {result.symbol} {result.decision.status} · {result.decision.reason}" for result in results]
                 phase = results[0].market_phase if results else "CLOSED"
                 state = provider.cached_state() if phase == "CLOSED" and provider.cached_state().last_api_success else provider.refresh(include_quote=False)
                 summary = store.daily_summary(datetime.now().strftime("%Y-%m-%d"))

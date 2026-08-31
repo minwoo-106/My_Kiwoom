@@ -94,3 +94,16 @@ def test_dry_run_stays_stable_for_many_cycles_without_order_service(tmp_path: Pa
         assert store.pending_orders() == []
     finally:
         store.close()
+
+
+def test_signal_record_marks_when_mock_auto_executor_is_attached(tmp_path: Path):
+    class _Executor:
+        pass
+    store = TradingStore(tmp_path / "signal.sqlite3")
+    try:
+        runner = DryRunStrategyRunner(_StableMarket(), TradingSettings(), store, order_service=_Executor(), phase_provider=lambda: "OPEN", sleep_fn=lambda _: None)
+        runner.run_once()
+        value = store.connection.execute("SELECT mock_order_enabled FROM signals LIMIT 1").fetchone()[0]
+        assert value == 1
+    finally:
+        store.close()

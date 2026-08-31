@@ -115,7 +115,7 @@ def main() -> int:
                 summary = store.daily_summary(datetime.now().strftime("%Y-%m-%d"))
             finally:
                 store.close()
-            print(f"오늘 결과 ({summary.date}) · DRY RUN 기록")
+            print(f"오늘 결과 ({summary.date}) · 모의 자동매매 기록")
             print(f"- 신호 {summary.signals}회 / 차단 {summary.blocked}회 / 매수 {summary.buys}회 / 매도 {summary.sells}회")
             print(f"- 실현손익: {summary.realized_profit:,}원")
             return 0
