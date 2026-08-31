@@ -1,6 +1,19 @@
 from app.risk.manager import RiskManager
 from app.strategy.core import Candle, StrategyStatus, SymbolState, TrendPullbackV1
+from app.strategy.runner import DryRunStrategyRunner
+from app.storage.sqlite import TradingStore
+from app.market_hours import KST, market_phase
+from datetime import datetime, timezone
+from pathlib import Path
+
+
+class _FillClient:
+    def post(self, *, path, tr_id, body):
+        assert path == "/api/dostk/acnt"
+        assert tr_id == "ka10076"
+        return {"cntr": [{"ord_no": "mock-1", "stk_cd": "005930", "trde_tp": "매수", "ord_qty": "1", "cntr_qty": "1", "oso_qty": "0", "cntr_pric": "70000", "ord_stt": "체결", "ord_tm": "091500"}]}
 from app.strategy.settings import DEFAULT_WATCHLIST, TradingSettings
+from app.kiwoom.market import MarketService
 
 def test_default_watchlist_has_five_symbols(): assert len(DEFAULT_WATCHLIST) == 5
 def test_risk_blocks_existing_holding():
@@ -10,3 +23,53 @@ def test_same_completed_bar_is_not_processed_twice():
     state=SymbolState("005930"); strategy=TrendPullbackV1()
     strategy.evaluate(candles,state)
     assert strategy.evaluate(candles,state).reason == "동일 완료 봉 재처리 차단"
+
+def test_restored_holding_without_protection_stays_safe():
+    candles=[Candle(str(i), 100+i, 101+i, 99+i, 100+i) for i in range(61)]
+    decision = TrendPullbackV1().evaluate(candles, SymbolState("005930", holding=True, average_price=100, quantity=1))
+    assert decision.status == StrategyStatus.HOLD
+    assert decision.signal is None
+
+def test_configured_holiday_is_never_a_market_open_day():
+    holiday = datetime(2026, 10, 9, 10, 0, tzinfo=KST)
+    assert market_phase(holiday, holidays=frozenset({holiday.date()})) == "CLOSED"
+
+def test_store_calculates_entries_and_consecutive_losses(tmp_path: Path):
+    store = TradingStore(tmp_path / "test.sqlite3")
+    try:
+        store.record_trade(timestamp="2026-08-31T09:00:00", symbol="005930", side="BUY", price=100, quantity=1, realized_profit=0)
+        store.record_trade(timestamp="2026-08-31T10:00:00", symbol="005930", side="SELL", price=90, quantity=1, realized_profit=-10)
+        store.record_trade(timestamp="2026-08-31T11:00:00", symbol="000660", side="SELL", price=90, quantity=1, realized_profit=-10)
+        assert store.today_entries("2026-08-31") == 1
+        assert store.today_realized_profit("2026-08-31") == -20
+        assert store.consecutive_losses() == 2
+    finally:
+        store.close()
+
+
+def test_reconcile_filled_mock_order_updates_position_and_journal(tmp_path: Path):
+    store = TradingStore(tmp_path / "test.sqlite3")
+    try:
+        store.record_order(order_number="mock-1", timestamp="2026-08-31T09:00:00", symbol="005930", side="BUY", quantity=1, stop_price=69_000, target_price=72_000)
+        runner = DryRunStrategyRunner(MarketService(_FillClient()), TradingSettings(), store)
+        runner.reconcile_orders()
+        state = runner.states["005930"]
+        assert state.holding and state.average_price == 70_000
+        assert state.stop_price == 69_000
+        assert store.pending_orders() == []
+        assert store.today_entries("2026-08-31") == 1
+    finally:
+        store.close()
+
+
+def test_runner_resets_per_symbol_daily_entry_counter_on_new_day(tmp_path: Path):
+    store = TradingStore(tmp_path / "test.sqlite3")
+    try:
+        runner = DryRunStrategyRunner(MarketService(_FillClient()), TradingSettings(), store)
+        runner.states["005930"].entries_today = 1
+        runner._trading_date = datetime(2026, 8, 30).date()
+        # 장 마감이면 네트워크 분석 없이 날짜 롤오버만 검증할 수 있습니다.
+        runner.run_once()
+        assert runner.states["005930"].entries_today == 0
+    finally:
+        store.close()

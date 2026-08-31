@@ -52,7 +52,7 @@ MVP는 KRX 시장가 1주 주문만 허용하며, 명시적인 확인 문구가 
 
 기본 조회 주기는 10초이며, API 부담을 막기 위해 5초보다 짧게 설정할 수 없습니다. VS Code 터미널은 가로 110칸, 세로 38줄 이상으로 넓히면 모든 패널이 가장 잘 보입니다.
 
-현재 실제 데이터로 표시되는 항목은 모의 환경, API 상태, 예수금·총자산·손익·보유종목, 지정 종목 시세입니다. 자동 전략, Risk Manager, SQLite 거래 저장소는 아직 구현 전이므로 `NOT STARTED` 또는 `미연결`으로 표시됩니다. 값을 임의로 만들어 표시하지 않습니다.
+`dashboard`는 단일 종목 조회 화면입니다. 5종목 전략과 통합 화면은 아래의 `auto-dashboard`를 사용하세요. 모든 화면은 기본적으로 주문을 보내지 않습니다.
 
 ## Trend Pullback V1 Multi (DRY RUN)
 
@@ -60,10 +60,22 @@ MVP는 KRX 시장가 1주 주문만 허용하며, 명시적인 확인 문구가 
 
 ```powershell
 .\.venv\Scripts\python.exe -m app.main strategy-dry-run
+.\.venv\Scripts\python.exe -m app.main strategy-loop --loop-seconds 60
+.\.venv\Scripts\python.exe -m app.main auto-dashboard --loop-seconds 60
 .\.venv\Scripts\python.exe -m app.main daily-summary
 ```
 
-`strategy-dry-run`은 신호와 차단 사유를 SQLite에 저장합니다. `daily-summary`는 장 마감 후에도 그날의 신호 수·위험 차단 수·주문 기록·실현손익을 표시합니다. 현재 구현은 DRY RUN이므로 주문 기록과 실현손익은 0이 정상입니다.
+`auto-dashboard` 하나만 실행하면 5종목의 완료 15분봉·전략 상태·위험 차단 사유·계좌 현황·당일 결과를 한 화면에서 봅니다. 장 마감·주말·등록 휴장일에는 시세 분석 요청을 멈추고 당일 요약만 표시합니다. `strategy-dry-run`과 `strategy-loop`도 주문을 보내지 않습니다.
+
+## 자동 모의주문 (기본 비활성)
+
+자동 모의주문은 구현되어 있지만, 기본 설정에서는 절대로 켜지지 않습니다. 실행 전 공식 KRX 휴장일을 `.env`의 `MARKET_HOLIDAYS`에 입력해야 하고, `ENABLE_MOCK_ORDER=true`와 실행 시 확인문구가 모두 필요합니다. 실계좌 서버는 코드상 허용되지 않습니다.
+
+```cmd
+.venv\Scripts\python.exe -m app.main auto-trade-dashboard --loop-seconds 60 --confirm AUTO-MOCK-ORDER
+```
+
+주문은 모의 KRX 시장가 1주만 가능하며, 접수 뒤 자동 재전송하지 않고 공식 `ka10076` 체결 조회로 상태를 확인합니다. 이 명령은 모의계좌 잔고를 바꿀 수 있으므로, 실제 실행 전에는 반드시 별도 승인을 받습니다.
 
 ## 테스트
 

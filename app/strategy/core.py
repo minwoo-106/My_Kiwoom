@@ -117,6 +117,10 @@ class TrendPullbackV1:
         if None in (fast, slow, rsi, atr): return Decision(StrategyStatus.WAIT, "지표 계산용 완료 봉 부족")
         assert fast is not None and slow is not None and rsi is not None and atr is not None
         if state.holding:
+            # 재시작 직후에는 이전 프로세스의 보호가격을 신뢰할 수 없습니다.
+            # 주문을 내지 않는 보수적 상태로 두고, 실행 계층이 체결기록으로 복구합니다.
+            if state.stop_price is None or state.target_price is None:
+                return Decision(StrategyStatus.HOLD, "재시작 복구: 보호가격 확인 대기", ema_fast=fast, ema_slow=slow, rsi=rsi, atr=atr)
             if bar.close <= state.stop_price: return Decision(StrategyStatus.STOP_LOSS, "ATR 손절", "SELL", ema_fast=fast, ema_slow=slow, rsi=rsi, atr=atr)
             if bar.close >= state.target_price: return Decision(StrategyStatus.TAKE_PROFIT, "목표 익절", "SELL", ema_fast=fast, ema_slow=slow, rsi=rsi, atr=atr)
             if bar.close < slow: return Decision(StrategyStatus.TREND_EXIT, "EMA60 하향 이탈", "SELL", ema_fast=fast, ema_slow=slow, rsi=rsi, atr=atr)

@@ -57,3 +57,16 @@ def test_read_client_reuses_its_memory_only_token():
         client.post(path="/api/dostk/acnt", tr_id="kt00004", body={})
 
     assert calls.count("/oauth2/token") == 1
+
+
+def test_filled_orders_uses_official_ka10076_and_parses_state():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/token":
+            return token_response()
+        assert request.headers["api-id"] == "ka10076"
+        assert request.url.path == "/api/dostk/acnt"
+        return httpx.Response(200, json={"return_code": 0, "cntr": [{"ord_no": "123", "stk_cd": "A005930", "trde_tp": "매수", "ord_qty": "1", "cntr_qty": "1", "oso_qty": "0", "cntr_pric": "70000", "ord_stt": "체결", "ord_tm": "091500"}]})
+    with httpx.Client(base_url="https://mockapi.kiwoom.com", transport=httpx.MockTransport(handler)) as http_client:
+        fills = AccountService(KiwoomReadClient(settings(), http_client)).filled_orders("005930")
+    assert fills[0].order_number == "123"
+    assert fills[0].filled_price == 70_000

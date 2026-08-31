@@ -24,6 +24,11 @@ class MarketService:
     def __init__(self, client: KiwoomReadClient) -> None:
         self._client = client
 
+    @property
+    def client(self) -> KiwoomReadClient:
+        """계좌 복구처럼 같은 읽기 전용 세션을 써야 하는 경우의 명시적 접근점입니다."""
+        return self._client
+
     def quote(self, code: str) -> Quote:
         normalized = code.strip()
         if not (normalized.isdigit() and len(normalized) == 6):

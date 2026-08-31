@@ -66,7 +66,22 @@ cd /d "C:\Users\ckdem\OneDrive\바탕 화면\Kiwoom"
 `# 5개 감시 종목의 15분봉을 분석합니다.`
 `# 신호와 위험 차단 사유만 SQLite에 저장합니다.`
 `# 현재는 주문을 전혀 보내지 않는 DRY RUN 모드입니다.`
-`# 1회 분석 후 종료합니다. 계속 자동 실행되는 명령은 아직 없습니다.`
+`# 1회 분석 후 종료합니다.`
+
+```cmd
+.venv\Scripts\python.exe -m app.main strategy-loop --loop-seconds 60
+```
+
+`# 5종목을 60초 간격으로 계속 분석합니다. 주문은 전혀 보내지 않습니다.`
+`# Ctrl + C를 누르면 안전하게 종료합니다.`
+
+```cmd
+.venv\Scripts\python.exe -m app.main auto-dashboard --loop-seconds 60
+```
+
+`# 가장 권장하는 평상시 관제 화면입니다.`
+`# 5종목의 완료 15분봉, 전략 상태, 위험 차단 사유, 잔고, 당일 결과를 한 화면에서 보여줍니다.`
+`# 이 명령도 DRY RUN이며 주문을 전혀 보내지 않습니다.`
 
 기본 감시 종목: 삼성전자(005930), SK하이닉스(000660), 현대차(005380), KB금융(105560), 서울식품(004410)
 
@@ -93,7 +108,27 @@ cd /d "C:\Users\ckdem\OneDrive\바탕 화면\Kiwoom"
 `# 해당 종목을 모의 시장가로 1주 매도합니다.`
 `# 실행 전 portfolio 명령으로 보유 수량을 확인하세요.`
 
-## 5. 테스트
+## 5. 자동 모의주문 (지금은 실행하지 않아도 됩니다)
+
+자동 주문은 **모의계좌만** 대상으로 구현돼 있지만, 잔고를 바꿀 수 있으므로 아래 명령은 충분히 확인한 뒤에만 실행하세요. 실계좌 서버는 지원하지 않습니다.
+
+먼저 `.env`에 다음 두 항목을 준비합니다.
+
+```text
+ENABLE_MOCK_ORDER=true
+MARKET_HOLIDAYS=공식 KRX 휴장일을 YYYY-MM-DD 형식으로 쉼표로 입력
+```
+
+```cmd
+.venv\Scripts\python.exe -m app.main auto-trade-dashboard --loop-seconds 60 --confirm AUTO-MOCK-ORDER
+```
+
+`# 자동 모의주문과 5종목 관제 화면을 한 CMD에서 실행합니다.`
+`# ENABLE_MOCK_ORDER, 휴장일 목록, AUTO-MOCK-ORDER 확인문구가 모두 없으면 시작되지 않습니다.`
+`# 시장가 1주만 접수하며, 접수 후에는 재전송하지 않고 체결 상태를 조회합니다.`
+`# 15:10 이후·장 마감·주말·등록 휴장일에는 신규 매수를 차단합니다.`
+
+## 6. 테스트
 
 ```cmd
 .venv\Scripts\python.exe -m pytest -q
@@ -103,7 +138,7 @@ cd /d "C:\Users\ckdem\OneDrive\바탕 화면\Kiwoom"
 
 ## 현재 자동매매 상태
 
-- 자동 주문 시작/중지 명령은 아직 구현 전입니다.
-- 현재 자동화 관련 기능은 `strategy-dry-run`이며, 신호만 분석하고 주문하지 않습니다.
-- 대시보드는 조회 전용입니다.
+- 평상시에는 `auto-dashboard` 하나만 켜면 됩니다. 이 화면은 주문 없는 안전한 DRY RUN입니다.
+- 실제 모의 자동주문은 위의 `auto-trade-dashboard`만 사용하며, 세 가지 안전 조건을 모두 통과해야 합니다.
+- 주문·체결 상태는 저장소와 키움 공식 체결 조회로 추적하고, 재시작 시 잔고·미체결 주문을 먼저 복구합니다.
 - 컴퓨터 또는 실행 중인 프로그램을 끄면 대시보드·분석도 멈춥니다.

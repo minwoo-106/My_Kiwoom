@@ -10,7 +10,7 @@ from app.kiwoom.auth import AuthenticationError, KiwoomAuthClient
 from app.kiwoom.account import AccountService
 from app.kiwoom.client import KiwoomApiError, KiwoomReadClient
 from app.kiwoom.market import MarketService
-from app.kiwoom.orders import MANUAL_CONFIRMATION, ManualMockOrderService
+from app.kiwoom.orders import AUTO_CONFIRMATION, MANUAL_CONFIRMATION, AutoMockOrderService, ManualMockOrderService
 from app.monitoring.dashboard import DashboardDataProvider, run_dashboard, run_auto_dashboard
 from app.storage.sqlite import TradingStore
 from app.strategy.runner import DryRunStrategyRunner
@@ -23,7 +23,7 @@ def _mask_account(account: str) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="키움 모의투자 MVP")
-    parser.add_argument("command", choices=["auth", "accounts", "portfolio", "quote", "manual-buy", "manual-sell", "dashboard", "auto-dashboard", "strategy-dry-run", "strategy-loop", "daily-summary"], help="실행할 기능")
+    parser.add_argument("command", choices=["auth", "accounts", "portfolio", "quote", "manual-buy", "manual-sell", "dashboard", "auto-dashboard", "auto-trade", "auto-trade-dashboard", "strategy-dry-run", "strategy-loop", "daily-summary"], help="실행할 기능")
     parser.add_argument("--stock-code", default="005930", help="조회할 KRX 6자리 종목코드")
     parser.add_argument("--quantity", type=int, default=1, help="수동 주문 수량(MVP에서는 1주만 허용)")
     parser.add_argument("--confirm", default="", help=f"주문에만 필요한 확인 문구: {MANUAL_CONFIRMATION}")
@@ -79,6 +79,36 @@ def main() -> int:
                 print("\n통합 DRY RUN을 종료했습니다. 주문은 전혀 실행되지 않았습니다.")
             return 0
 
+        if args.command in {"auto-trade", "auto-trade-dashboard"}:
+            trading = TradingSettings.load()
+            if not trading.enable_mock_order or args.confirm != AUTO_CONFIRMATION:
+                raise ValueError("자동 모의주문은 .env의 ENABLE_MOCK_ORDER=true 및 --confirm AUTO-MOCK-ORDER가 모두 필요합니다.")
+            if not trading.market_holidays:
+                raise ValueError("자동 모의주문은 공식 KRX 휴장일을 MARKET_HOLIDAYS에 먼저 입력해야 합니다.")
+            if args.loop_seconds < 30: raise ValueError("자동 주문 분석 주기는 최소 30초여야 합니다.")
+            if args.command == "auto-trade-dashboard":
+                service = AutoMockOrderService(settings, runtime_confirmation=args.confirm)
+                try:
+                    run_auto_dashboard(settings, interval_seconds=args.loop_seconds, order_service=service)
+                except KeyboardInterrupt:
+                    print("\n모의 자동주문 대시보드를 종료했습니다. 미체결 주문은 취소되지 않으므로 체결 상태를 확인하세요.")
+                finally:
+                    service.close()
+                return 0
+            client = KiwoomReadClient(settings)
+            store = TradingStore()
+            service = AutoMockOrderService(settings, runtime_confirmation=args.confirm)
+            try:
+                runner = DryRunStrategyRunner(MarketService(client), trading, store, order_service=service)
+                runner.restore_from_account()
+                print("모의 자동주문 시작: Ctrl+C 종료 · 주문 접수 후 재전송하지 않고 체결만 추적합니다.")
+                runner.run_forever(args.loop_seconds, lambda results: print(" | ".join(f"{r.symbol}:{r.decision.status}" for r in results)))
+            except KeyboardInterrupt:
+                print("\n모의 자동주문 루프를 종료했습니다. 미체결 주문은 취소하지 않았으므로 체결 상태를 확인하세요.")
+            finally:
+                service.close(); store.close(); client.close()
+            return 0
+
         if args.command == "daily-summary":
             store = TradingStore()
             try:
@@ -97,6 +127,7 @@ def main() -> int:
                 store = TradingStore()
                 try:
                     runner = DryRunStrategyRunner(MarketService(client), TradingSettings.load(), store)
+                    runner.restore_from_account()
                     if args.command == "strategy-loop":
                         print("Trend Pullback V1 Multi · DRY RUN 반복 실행 (Ctrl+C 종료, 주문 전송 없음)")
                         runner.run_forever(args.loop_seconds, lambda results: print(" | ".join(f"{r.symbol}:{r.decision.status}" for r in results)))

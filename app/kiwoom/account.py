@@ -22,6 +22,21 @@ class Holding:
     profit_loss: int
 
 
+@dataclass(frozen=True)
+class OrderFill:
+    """공식 ka10076 체결조회에서 정규화한 단일 주문 상태입니다."""
+
+    order_number: str
+    code: str
+    side: str
+    order_quantity: int
+    filled_quantity: int
+    unfilled_quantity: int
+    filled_price: int
+    status: str
+    order_time: str
+
+
 def _integer(value: Any) -> int:
     try:
         return abs(int(str(value or "0").replace(",", "")))
@@ -71,3 +86,30 @@ class AccountService:
         """공식 ka10075 미체결 조회; 자동 주문 전 중복 차단에 사용합니다."""
         payload = self._client.post(path=ACCOUNT_PATH, tr_id="ka10075", body={"all_stk_tp": "0", "trde_tp": "0", "stex_tp": "0", "stk_cd": ""})
         return {str(row.get("stk_cd", "")).lstrip("A") for row in payload.get("oso", []) if isinstance(row, dict) and str(row.get("oso_qty", "0")).replace("-", "").isdigit() and int(str(row.get("oso_qty", "0"))) > 0}
+
+    def filled_orders(self, code: str | None = None) -> list[OrderFill]:
+        """공식 ka10076 체결요청으로 주문 접수 뒤의 상태를 조회합니다."""
+        normalized = (code or "").strip()
+        if normalized and not (normalized.isdigit() and len(normalized) == 6):
+            raise ValueError("종목코드는 6자리 숫자여야 합니다.")
+        payload = self._client.post(
+            path=ACCOUNT_PATH,
+            tr_id="ka10076",
+            body={"qry_tp": "1" if normalized else "0", "sell_tp": "0", "stex_tp": "0", "stk_cd": normalized, "ord_no": ""},
+        )
+        fills: list[OrderFill] = []
+        for row in payload.get("cntr", []):
+            if not isinstance(row, dict):
+                continue
+            fills.append(OrderFill(
+                order_number=str(row.get("ord_no", "")),
+                code=str(row.get("stk_cd", "")).lstrip("A"),
+                side=str(row.get("trde_tp", "")),
+                order_quantity=_integer(row.get("ord_qty")),
+                filled_quantity=_integer(row.get("cntr_qty")),
+                unfilled_quantity=_integer(row.get("oso_qty")),
+                filled_price=_integer(row.get("cntr_pric")),
+                status=str(row.get("ord_stt", "")),
+                order_time=str(row.get("ord_tm", "")),
+            ))
+        return fills

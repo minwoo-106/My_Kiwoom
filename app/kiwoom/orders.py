@@ -13,6 +13,7 @@ from app.kiwoom.client import KiwoomApiError
 
 ORDER_PATH = "/api/dostk/ordr"
 MANUAL_CONFIRMATION = "MOCK-ORDER"
+AUTO_CONFIRMATION = "AUTO-MOCK-ORDER"
 
 
 @dataclass(frozen=True)
@@ -94,3 +95,32 @@ class ManualMockOrderService:
         if not order_number:
             raise KiwoomApiError("주문 응답에 주문번호가 없습니다. 재전송하지 말고 상태를 먼저 확인하세요.")
         return SubmittedOrder(order_number=order_number, exchange=str(payload.get("dmst_stex_tp", "KRX")))
+
+
+class AutoMockOrderService(ManualMockOrderService):
+    """자동 루프 전용 모의 주문 관문입니다.
+
+    두 개의 독립적인 허용 장치(환경설정과 실행 시 확인문구)가 모두 맞아야만
+    주문 요청을 만들 수 있습니다. 상속한 전송부도 항상 mock host를 재검증합니다.
+    """
+
+    def __init__(self, settings: Settings, *, runtime_confirmation: str, client: httpx.Client | None = None) -> None:
+        super().__init__(settings, client)
+        self._runtime_confirmation = runtime_confirmation
+
+    def buy_market(self, *, code: str, quantity: int) -> SubmittedOrder:  # type: ignore[override]
+        return self._auto_submit("kt10000", code, quantity)
+
+    def sell_market(self, *, code: str, quantity: int) -> SubmittedOrder:  # type: ignore[override]
+        return self._auto_submit("kt10001", code, quantity)
+
+    def _auto_submit(self, tr_id: str, code: str, quantity: int) -> SubmittedOrder:
+        if not self._auto_enabled():
+            raise ValueError("자동 모의주문은 ENABLE_MOCK_ORDER=true 및 --confirm AUTO-MOCK-ORDER가 모두 필요합니다.")
+        return self._submit(tr_id, code, quantity, MANUAL_CONFIRMATION)
+
+    def _auto_enabled(self) -> bool:
+        # Settings는 mock host를 강제하지만 주문 시점에도 다시 검증합니다.
+        assert_mock_host(self._settings.api_host)
+        import os
+        return os.getenv("ENABLE_MOCK_ORDER", "false").lower() == "true" and self._runtime_confirmation == AUTO_CONFIRMATION
