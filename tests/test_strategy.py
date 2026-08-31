@@ -12,6 +12,13 @@ class _FillClient:
         assert path == "/api/dostk/acnt"
         assert tr_id == "ka10076"
         return {"cntr": [{"ord_no": "mock-1", "stk_cd": "005930", "trde_tp": "매수", "ord_qty": "1", "cntr_qty": "1", "oso_qty": "0", "cntr_pric": "70000", "ord_stt": "체결", "ord_tm": "091500"}]}
+
+
+class _StableMarket:
+    client = _FillClient()
+
+    def completed_15m_candles(self, symbol):
+        return [Candle(str(index), 100 + index, 101 + index, 99 + index, 100 + index) for index in range(61)]
 from app.strategy.settings import DEFAULT_WATCHLIST, TradingSettings
 from app.kiwoom.market import MarketService
 
@@ -71,5 +78,19 @@ def test_runner_resets_per_symbol_daily_entry_counter_on_new_day(tmp_path: Path)
         # 장 마감이면 네트워크 분석 없이 날짜 롤오버만 검증할 수 있습니다.
         runner.run_once()
         assert runner.states["005930"].entries_today == 0
+    finally:
+        store.close()
+
+
+def test_dry_run_stays_stable_for_many_cycles_without_order_service(tmp_path: Path):
+    """장시간 테스트 축소판: 5종목 × 200회에도 주문 경로 없이 안정적으로 반복된다."""
+    store = TradingStore(tmp_path / "stability.sqlite3")
+    try:
+        runner = DryRunStrategyRunner(_StableMarket(), TradingSettings(), store, phase_provider=lambda: "OPEN", sleep_fn=lambda _: None)
+        for _ in range(200):
+            results = runner.run_once()
+            assert len(results) == 5
+        assert store.daily_summary(datetime.now().strftime("%Y-%m-%d")).buys == 0
+        assert store.pending_orders() == []
     finally:
         store.close()

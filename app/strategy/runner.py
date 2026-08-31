@@ -20,10 +20,12 @@ class SymbolResult:
     market_phase: str = "CLOSED"
 
 class DryRunStrategyRunner:
-    def __init__(self, market: MarketService, settings: TradingSettings, store: TradingStore, strategy: TrendPullbackV1 | None = None, risk: RiskManager | None = None, order_service: AutoMockOrderService | None = None) -> None:
+    def __init__(self, market: MarketService, settings: TradingSettings, store: TradingStore, strategy: TrendPullbackV1 | None = None, risk: RiskManager | None = None, order_service: AutoMockOrderService | None = None, phase_provider=market_phase, sleep_fn=sleep) -> None:
         self.market, self.settings, self.store = market, settings, store
         self.strategy, self.risk = strategy or TrendPullbackV1(), risk or RiskManager()
         self.order_service = order_service
+        self.phase_provider = phase_provider
+        self.sleep_fn = sleep_fn
         self.states = {symbol: SymbolState(symbol) for symbol in settings.watchlist}
         self.estimated_assets: int | None = None
         self.last_reconcile_error: str | None = None
@@ -89,7 +91,7 @@ class DryRunStrategyRunner:
             for state in self.states.values():
                 state.entries_today = 0
             self._trading_date = today_date
-        phase = market_phase(); results=[]
+        phase = self.phase_provider(); results=[]
         self.last_reconcile_error = None
         try:
             self.reconcile_orders()
@@ -105,7 +107,7 @@ class DryRunStrategyRunner:
         for index, (symbol, state) in enumerate(self.states.items()):
             if index:
                 # 키움 모의투자는 동일 국내 조회 TR을 초당 1회로 제한합니다.
-                sleep(1.05)
+                self.sleep_fn(1.05)
             try:
                 candles = self.market.completed_15m_candles(symbol)
                 completed_price = candles[-1].close if candles else None
