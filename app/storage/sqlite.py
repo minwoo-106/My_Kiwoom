@@ -12,6 +12,11 @@ class DailySummary:
 class RecordedOrder:
     order_number: str; timestamp: str; symbol: str; side: str; quantity: int; status: str; filled_quantity: int; filled_price: int; stop_price: float | None; target_price: float | None
 
+
+@dataclass(frozen=True)
+class RecordedTrade:
+    timestamp: str; symbol: str; side: str; price: float; quantity: int; realized_profit: int; status: str
+
 class TradingStore:
     def __init__(self, path: Path | str = "data/trading.sqlite3") -> None:
         self.path = Path(path); self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -50,6 +55,9 @@ class TradingStore:
             if profit < 0: count += 1
             else: break
         return count
+    def recent_trades(self, limit: int = 5) -> list[RecordedTrade]:
+        rows = self.connection.execute("SELECT timestamp,symbol,side,price,quantity,realized_profit,status FROM trades ORDER BY timestamp DESC LIMIT ?", (limit,)).fetchall()
+        return [RecordedTrade(*row) for row in rows]
     def daily_summary(self, date: str) -> DailySummary:
         q = "WHERE substr(timestamp,1,10)=?"; args=(date,)
         signals=self.connection.execute(f"SELECT count(*) FROM signals {q}",args).fetchone()[0]

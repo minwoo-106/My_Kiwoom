@@ -42,6 +42,7 @@ class DashboardState:
     risk_status: str = "대기"
     daily_summary: str | None = None
     execution_mode: str = "DRY RUN(주문 전송 없음)"
+    trades: tuple["TradeRow", ...] = ()
     api_status: str = "연결 대기"
     api_error: str | None = None
     api_requests: int = 0
@@ -60,6 +61,17 @@ class WatchRow:
     rsi: float | None = None
 
 
+@dataclass(frozen=True)
+class TradeRow:
+    timestamp: str
+    symbol: str
+    side: str
+    price: float
+    quantity: int
+    realized_profit: int
+    status: str
+
+
 class DashboardDataProvider:
     """조회 서비스를 호출해 DashboardState를 만드는 어댑터입니다.
 
@@ -74,6 +86,7 @@ class DashboardDataProvider:
         self._api_requests = 0
         self._last_success: datetime | None = None
         self._events: Deque[str] = deque(maxlen=5)
+        self._cached_state = DashboardState(started_at=self._started_at)
 
     def close(self) -> None:
         self._client.close()
@@ -89,7 +102,7 @@ class DashboardDataProvider:
             self._last_success = datetime.now()
             source = f"{quote.code} 시세·잔고" if quote else "잔고"
             self._events.appendleft(f"[{self._last_success:%H:%M:%S}] INFO  {source} 갱신")
-            return DashboardState(
+            self._cached_state = DashboardState(
                 account=AccountSnapshot(
                     deposit=summary["deposit"],
                     estimated_assets=summary["estimated_assets"],
@@ -103,10 +116,13 @@ class DashboardDataProvider:
                 started_at=self._started_at,
                 events=tuple(self._events),
             )
+            return self._cached_state
         except (KiwoomApiError, ValueError) as exc:
             now = datetime.now()
             self._events.appendleft(f"[{now:%H:%M:%S}] ERROR {exc}")
-            return DashboardState(
+            self._cached_state = DashboardState(
+                account=self._cached_state.account,
+                quote=self._cached_state.quote,
                 api_status="오류",
                 api_error=str(exc),
                 api_requests=self._api_requests,
@@ -114,6 +130,11 @@ class DashboardDataProvider:
                 started_at=self._started_at,
                 events=tuple(self._events),
             )
+            return self._cached_state
+
+    def cached_state(self) -> DashboardState:
+        """장 마감 중에는 마지막 성공 상태를 다시 그리기만 하며 API를 호출하지 않습니다."""
+        return self._cached_state
 
 
 def _money(value: int | None) -> str:
@@ -166,17 +187,21 @@ def _signal_panel(state: DashboardState) -> Panel:
     table.add_row("전략", state.strategy_status)
     table.add_row("시장", state.market_phase)
     table.add_row("위험관리", state.risk_status)
-    table.add_row("주문 전송", "비활성 (DRY RUN)")
+    table.add_row("주문 전송", state.execution_mode)
     if state.daily_summary:
         table.add_row("오늘 결과", state.daily_summary)
     return Panel(table, title="[bold]전략 / 신호 통계[/bold]", border_style="yellow")
 
 
-def _trades_panel() -> Panel:
+def _trades_panel(state: DashboardState) -> Panel:
     table = Table(expand=True, box=None, header_style="bold cyan")
     for label in ("시간", "종목", "방향", "체결가", "수량", "손익", "상태"):
         table.add_column(label)
-    table.add_row("-", "-", "-", "-", "-", "-", "거래 저장소 미연결")
+    if state.trades:
+        for row in state.trades:
+            table.add_row(row.timestamp[11:19], row.symbol, row.side, f"{row.price:,.0f}원", str(row.quantity), f"{row.realized_profit:+,}원", row.status)
+    else:
+        table.add_row("-", "-", "-", "-", "-", "-", "체결 기록 없음")
     return Panel(table, title="[bold]최근 거래[/bold]", border_style="blue")
 
 
@@ -204,7 +229,7 @@ def render_dashboard(state: DashboardState) -> Layout:
     layout["header"].update(Panel(Align.center(header), border_style="green"))
     layout["body"].split_row(Layout(name="left", ratio=1), Layout(name="right", ratio=2))
     layout["left"].split_column(Layout(_account_panel(state)), Layout(_signal_panel(state)))
-    layout["right"].split_column(Layout(_watch_panel(state)), Layout(_trades_panel()), Layout(_health_panel(state)))
+    layout["right"].split_column(Layout(_watch_panel(state)), Layout(_trades_panel(state)), Layout(_health_panel(state)))
     events = "\n".join(state.events) if state.events else "[INFO] 첫 조회를 기다리는 중입니다."
     layout["events"].update(Panel(events, title="[bold]최근 이벤트[/bold]", border_style="blue"))
     return layout
@@ -240,13 +265,14 @@ def run_auto_dashboard(settings: Settings, *, interval_seconds: float, console: 
         with Live(render_dashboard(DashboardState()), console=output, refresh_per_second=4, screen=True) as live:
             while True:
                 results = runner.run_once()
-                state = provider.refresh(include_quote=False)
                 event_rows = [f"[{datetime.now():%H:%M:%S}] DRY RUN  {result.symbol} {result.decision.status} · {result.decision.reason}" for result in results]
                 phase = results[0].market_phase if results else "CLOSED"
+                state = provider.cached_state() if phase == "CLOSED" and provider.cached_state().last_api_success else provider.refresh(include_quote=False)
                 summary = store.daily_summary(datetime.now().strftime("%Y-%m-%d"))
                 daily = f"신호 {summary.signals} · 차단 {summary.blocked} · 실현 {summary.realized_profit:,}원"
                 mode = "모의 자동주문 활성 · 체결 확인 후 상태 반영" if order_service else "DRY RUN(주문 전송 없음)"
-                state = DashboardState(account=state.account, api_status=state.api_status, api_error=state.api_error, api_requests=state.api_requests, last_api_success=state.last_api_success, started_at=state.started_at, watch_rows=tuple(WatchRow(result.symbol, result.completed_bar_price, str(result.decision.status), result.decision.reason, result.decision.score, result.decision.rsi) for result in results), market_phase=phase, strategy_status="정상 분석" if phase != "CLOSED" else "장 마감 대기", risk_status="정상 (매수 제한 적용)", daily_summary=daily, execution_mode=mode, events=tuple(event_rows[-5:]))
+                trades = tuple(TradeRow(item.timestamp, item.symbol, item.side, item.price, item.quantity, item.realized_profit, item.status) for item in store.recent_trades())
+                state = DashboardState(account=state.account, api_status=state.api_status, api_error=state.api_error, api_requests=state.api_requests, last_api_success=state.last_api_success, started_at=state.started_at, watch_rows=tuple(WatchRow(result.symbol, result.completed_bar_price, str(result.decision.status), result.decision.reason, result.decision.score, result.decision.rsi) for result in results), market_phase=phase, strategy_status="정상 분석" if phase != "CLOSED" else "장 마감 대기", risk_status="정상 (매수 제한 적용)", daily_summary=daily, execution_mode=mode, trades=trades, events=tuple(event_rows[-5:]))
                 live.update(render_dashboard(state))
                 time.sleep(interval_seconds)
     finally:

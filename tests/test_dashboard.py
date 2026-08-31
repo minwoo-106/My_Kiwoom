@@ -4,7 +4,7 @@ from io import StringIO
 from rich.console import Console
 
 from app.kiwoom.market import Quote
-from app.monitoring.dashboard import AccountSnapshot, DashboardState, WatchRow, render_dashboard
+from app.monitoring.dashboard import AccountSnapshot, DashboardState, TradeRow, WatchRow, render_dashboard
 
 
 def test_dashboard_renders_mock_only_and_placeholder_statuses():
@@ -21,6 +21,7 @@ def test_dashboard_renders_mock_only_and_placeholder_statuses():
         market_phase="OPEN",
         strategy_status="정상 분석",
         risk_status="정상 (DRY RUN 차단 적용)",
+        trades=(TradeRow("2026-08-31T13:00:00", "005930", "BUY", 70_000, 1, 0, "FILLED"),),
     )
     output = StringIO()
     console = Console(file=output, width=150, height=60, color_system=None)
@@ -34,3 +35,4 @@ def test_dashboard_renders_mock_only_and_placeholder_statuses():
     assert "000660" in rendered
     assert "완료 15분봉" in rendered
     assert "DRY RUN(주문 전송 없음)" in rendered
+    assert "FILLED" in rendered
