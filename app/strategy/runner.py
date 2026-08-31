@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from time import sleep
 from app.kiwoom.market import MarketService
+from app.kiwoom.account import AccountService
 from app.market_hours import market_phase
 from app.risk.manager import RiskManager
 from app.storage.sqlite import TradingStore
@@ -19,6 +20,15 @@ class DryRunStrategyRunner:
         self.market, self.settings, self.store = market, settings, store
         self.strategy, self.risk = strategy or TrendPullbackV1(), risk or RiskManager()
         self.states = {symbol: SymbolState(symbol) for symbol in settings.watchlist}
+    def restore_from_account(self) -> None:
+        summary, holdings = AccountService(self.market._client).portfolio()
+        pending = AccountService(self.market._client).unfilled_symbols()
+        for holding in holdings:
+            symbol = holding.code.lstrip("A")
+            if symbol in self.states:
+                state=self.states[symbol]; state.holding=True; state.quantity=holding.quantity; state.average_price=holding.average_price
+        for symbol in pending:
+            if symbol in self.states: self.states[symbol].order_pending=True
     def run_once(self) -> list[SymbolResult]:
         phase = market_phase(); results=[]
         for index, (symbol, state) in enumerate(self.states.items()):
