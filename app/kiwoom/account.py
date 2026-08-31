@@ -66,3 +66,8 @@ class AccountService:
                 )
             )
         return summary, holdings
+
+    def unfilled_symbols(self) -> set[str]:
+        """공식 ka10075 미체결 조회; 자동 주문 전 중복 차단에 사용합니다."""
+        payload = self._client.post(path=ACCOUNT_PATH, tr_id="ka10075", body={"all_stk_tp": "0", "trde_tp": "0", "stex_tp": "0", "stk_cd": ""})
+        return {str(row.get("stk_cd", "")).lstrip("A") for row in payload.get("oso", []) if isinstance(row, dict) and str(row.get("oso_qty", "0")).replace("-", "").isdigit() and int(str(row.get("oso_qty", "0"))) > 0}
