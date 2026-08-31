@@ -128,6 +128,12 @@ MARKET_HOLIDAYS=공식 KRX 휴장일을 YYYY-MM-DD 형식으로 쉼표로 입력
 `# 시장가 1주만 접수하며, 접수 후에는 재전송하지 않고 체결 상태를 조회합니다.`
 `# 15:10 이후·장 마감·주말·등록 휴장일에는 신규 매수를 차단합니다.`
 
+```cmd
+.venv\Scripts\python.exe -m app.main auto-trade-dashboard --once --confirm AUTO-MOCK-ORDER
+```
+
+`# 장외 또는 화면 점검 때 한 번만 출력하고 종료합니다. 장 마감에는 주문하지 않습니다.`
+
 ## 6. 테스트
 
 ```cmd

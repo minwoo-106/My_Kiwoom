@@ -4,7 +4,8 @@ from io import StringIO
 from rich.console import Console
 
 from app.kiwoom.market import Quote
-from app.monitoring.dashboard import AccountSnapshot, DashboardState, TradeRow, WatchRow, render_dashboard
+from app.config import Settings
+from app.monitoring.dashboard import AccountSnapshot, DashboardDataProvider, DashboardState, TradeRow, WatchRow, render_dashboard
 
 
 def test_dashboard_renders_mock_only_and_placeholder_statuses():
@@ -36,3 +37,14 @@ def test_dashboard_renders_mock_only_and_placeholder_statuses():
     assert "완료 15분봉" in rendered
     assert "DRY RUN(주문 전송 없음)" in rendered
     assert "FILLED" in rendered
+
+
+def test_restored_account_snapshot_is_reused_without_second_api_request():
+    provider = DashboardDataProvider(Settings(environment="mock", app_key="test", secret_key="test"), "005930")
+    try:
+        provider.hydrate_account({"deposit": 10_000_000, "estimated_assets": 10_000_000, "total_profit_loss": 0}, ())
+        state = provider.cached_state()
+        assert state.account.deposit == 10_000_000
+        assert state.api_requests == 0
+    finally:
+        provider.close()

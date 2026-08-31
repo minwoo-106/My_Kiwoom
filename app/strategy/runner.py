@@ -30,7 +30,7 @@ class DryRunStrategyRunner:
         self.estimated_assets: int | None = None
         self.last_reconcile_error: str | None = None
         self._trading_date = datetime.now().date()
-    def restore_from_account(self) -> None:
+    def restore_from_account(self) -> tuple[dict[str, int], list]:
         account = AccountService(self.market.client)
         summary, holdings = account.portfolio()
         self.estimated_assets = summary["estimated_assets"]
@@ -44,6 +44,7 @@ class DryRunStrategyRunner:
                     state.stop_price, state.target_price = previous.stop_price, previous.target_price
         for symbol in pending:
             if symbol in self.states: self.states[symbol].order_pending=True
+        return summary, holdings
 
     def reconcile_orders(self) -> None:
         """기록된 미결 주문을 공식 체결 조회와 대조합니다. 재주문은 절대 하지 않습니다."""

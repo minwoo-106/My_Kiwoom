@@ -89,7 +89,7 @@ def main() -> int:
             if args.command == "auto-trade-dashboard":
                 service = AutoMockOrderService(settings, runtime_confirmation=args.confirm)
                 try:
-                    run_auto_dashboard(settings, interval_seconds=args.loop_seconds, order_service=service)
+                    run_auto_dashboard(settings, interval_seconds=args.loop_seconds, order_service=service, once=args.once)
                 except KeyboardInterrupt:
                     print("\n모의 자동주문 대시보드를 종료했습니다. 미체결 주문은 취소되지 않으므로 체결 상태를 확인하세요.")
                 finally:

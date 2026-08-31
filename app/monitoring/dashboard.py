@@ -136,6 +136,25 @@ class DashboardDataProvider:
         """장 마감 중에는 마지막 성공 상태를 다시 그리기만 하며 API를 호출하지 않습니다."""
         return self._cached_state
 
+    def hydrate_account(self, summary: dict[str, int], holdings: list[Holding]) -> None:
+        """복구 단계에서 이미 받은 잔고를 재사용해 동일 TR의 즉시 재호출을 막습니다."""
+        now = datetime.now()
+        self._last_success = now
+        self._events.appendleft(f"[{now:%H:%M:%S}] INFO  복구 잔고 재사용 (추가 API 호출 없음)")
+        self._cached_state = DashboardState(
+            account=AccountSnapshot(
+                deposit=summary["deposit"],
+                estimated_assets=summary["estimated_assets"],
+                total_profit_loss=summary["total_profit_loss"],
+                holdings=tuple(holdings),
+            ),
+            api_status="정상",
+            api_requests=self._api_requests,
+            last_api_success=now,
+            started_at=self._started_at,
+            events=tuple(self._events),
+        )
+
 
 def _money(value: int | None) -> str:
     return "조회 대기" if value is None else f"{value:,}원"
@@ -250,7 +269,7 @@ def run_dashboard(provider: DashboardDataProvider, *, refresh_seconds: float, on
             time.sleep(refresh_seconds)
 
 
-def run_auto_dashboard(settings: Settings, *, interval_seconds: float, console: Console | None = None, order_service=None) -> None:
+def run_auto_dashboard(settings: Settings, *, interval_seconds: float, console: Console | None = None, order_service=None, once: bool = False) -> None:
     """5종목 전략과 관제 화면을 한 프로세스로 실행합니다. 기본값은 주문 없는 DRY RUN입니다."""
     from app.storage.sqlite import TradingStore
     from app.strategy.runner import DryRunStrategyRunner
@@ -261,19 +280,26 @@ def run_auto_dashboard(settings: Settings, *, interval_seconds: float, console: 
     store = TradingStore()
     runner = DryRunStrategyRunner(MarketService(provider._client), TradingSettings.load(), store, order_service=order_service)
     try:
-        runner.restore_from_account()
+        summary, holdings = runner.restore_from_account()
+        # restore_from_account의 kt00004 결과를 그대로 써서 장외 시작 직후 429를 막습니다.
+        provider.hydrate_account(summary, holdings)
+        def refresh_cycle() -> DashboardState:
+            results = runner.run_once()
+            label = "MOCK AUTO" if order_service else "DRY RUN"
+            event_rows = [f"[{datetime.now():%H:%M:%S}] {label}  {result.symbol} {result.decision.status} · {result.decision.reason}" for result in results]
+            phase = results[0].market_phase if results else "CLOSED"
+            state = provider.cached_state() if phase == "CLOSED" and provider.cached_state().last_api_success else provider.refresh(include_quote=False)
+            day_summary = store.daily_summary(datetime.now().strftime("%Y-%m-%d"))
+            daily = f"신호 {day_summary.signals} · 차단 {day_summary.blocked} · 실현 {day_summary.realized_profit:,}원"
+            mode = "모의 자동주문 활성 · 체결 확인 후 상태 반영" if order_service else "DRY RUN(주문 전송 없음)"
+            trades = tuple(TradeRow(item.timestamp, item.symbol, item.side, item.price, item.quantity, item.realized_profit, item.status) for item in store.recent_trades())
+            return DashboardState(account=state.account, api_status=state.api_status, api_error=state.api_error, api_requests=state.api_requests, last_api_success=state.last_api_success, started_at=state.started_at, watch_rows=tuple(WatchRow(result.symbol, result.completed_bar_price, str(result.decision.status), result.decision.reason, result.decision.score, result.decision.rsi) for result in results), market_phase=phase, strategy_status="정상 분석" if phase != "CLOSED" else "장 마감 대기", risk_status="정상 (매수 제한 적용)", daily_summary=daily, execution_mode=mode, trades=trades, events=tuple(event_rows[-5:]))
+        if once:
+            output.print(render_dashboard(refresh_cycle()))
+            return
         with Live(render_dashboard(DashboardState()), console=output, refresh_per_second=4, screen=True) as live:
             while True:
-                results = runner.run_once()
-                label = "MOCK AUTO" if order_service else "DRY RUN"
-                event_rows = [f"[{datetime.now():%H:%M:%S}] {label}  {result.symbol} {result.decision.status} · {result.decision.reason}" for result in results]
-                phase = results[0].market_phase if results else "CLOSED"
-                state = provider.cached_state() if phase == "CLOSED" and provider.cached_state().last_api_success else provider.refresh(include_quote=False)
-                summary = store.daily_summary(datetime.now().strftime("%Y-%m-%d"))
-                daily = f"신호 {summary.signals} · 차단 {summary.blocked} · 실현 {summary.realized_profit:,}원"
-                mode = "모의 자동주문 활성 · 체결 확인 후 상태 반영" if order_service else "DRY RUN(주문 전송 없음)"
-                trades = tuple(TradeRow(item.timestamp, item.symbol, item.side, item.price, item.quantity, item.realized_profit, item.status) for item in store.recent_trades())
-                state = DashboardState(account=state.account, api_status=state.api_status, api_error=state.api_error, api_requests=state.api_requests, last_api_success=state.last_api_success, started_at=state.started_at, watch_rows=tuple(WatchRow(result.symbol, result.completed_bar_price, str(result.decision.status), result.decision.reason, result.decision.score, result.decision.rsi) for result in results), market_phase=phase, strategy_status="정상 분석" if phase != "CLOSED" else "장 마감 대기", risk_status="정상 (매수 제한 적용)", daily_summary=daily, execution_mode=mode, trades=trades, events=tuple(event_rows[-5:]))
+                state = refresh_cycle()
                 live.update(render_dashboard(state))
                 time.sleep(interval_seconds)
     finally:
