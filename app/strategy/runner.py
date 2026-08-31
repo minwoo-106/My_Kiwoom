@@ -36,3 +36,10 @@ class DryRunStrategyRunner:
                 decision = Decision(StrategyStatus.ERROR, str(exc)); state.status, state.reason = decision.status, decision.reason
             results.append(SymbolResult(symbol, decision))
         return results
+
+    def run_forever(self, interval_seconds: float, on_cycle=None) -> None:
+        """장중에는 반복 분석하고, 장외에는 주문 없이 대기합니다."""
+        while True:
+            results = self.run_once()
+            if on_cycle: on_cycle(results)
+            sleep(interval_seconds)

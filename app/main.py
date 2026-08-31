@@ -11,7 +11,7 @@ from app.kiwoom.account import AccountService
 from app.kiwoom.client import KiwoomApiError, KiwoomReadClient
 from app.kiwoom.market import MarketService
 from app.kiwoom.orders import MANUAL_CONFIRMATION, ManualMockOrderService
-from app.monitoring.dashboard import DashboardDataProvider, run_dashboard
+from app.monitoring.dashboard import DashboardDataProvider, run_dashboard, run_auto_dashboard
 from app.storage.sqlite import TradingStore
 from app.strategy.runner import DryRunStrategyRunner
 from app.strategy.settings import TradingSettings
@@ -23,12 +23,13 @@ def _mask_account(account: str) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="키움 모의투자 MVP")
-    parser.add_argument("command", choices=["auth", "accounts", "portfolio", "quote", "manual-buy", "manual-sell", "dashboard", "strategy-dry-run", "daily-summary"], help="실행할 기능")
+    parser.add_argument("command", choices=["auth", "accounts", "portfolio", "quote", "manual-buy", "manual-sell", "dashboard", "auto-dashboard", "strategy-dry-run", "strategy-loop", "daily-summary"], help="실행할 기능")
     parser.add_argument("--stock-code", default="005930", help="조회할 KRX 6자리 종목코드")
     parser.add_argument("--quantity", type=int, default=1, help="수동 주문 수량(MVP에서는 1주만 허용)")
     parser.add_argument("--confirm", default="", help=f"주문에만 필요한 확인 문구: {MANUAL_CONFIRMATION}")
     parser.add_argument("--refresh-seconds", type=float, default=10.0, help="대시보드 API 조회 주기(최소 5초, 기본 10초)")
     parser.add_argument("--once", action="store_true", help="대시보드를 한 번만 표시하고 종료")
+    parser.add_argument("--loop-seconds", type=float, default=60.0, help="전략 반복 분석 주기(최소 30초, 기본 60초)")
     args = parser.parse_args()
 
     print("=" * 48)
@@ -70,6 +71,13 @@ def main() -> int:
             finally:
                 provider.close()
             return 0
+        if args.command == "auto-dashboard":
+            if args.loop_seconds < 30: raise ValueError("통합 대시보드 분석 주기는 최소 30초여야 합니다.")
+            try:
+                run_auto_dashboard(settings, interval_seconds=args.loop_seconds)
+            except KeyboardInterrupt:
+                print("\n통합 DRY RUN을 종료했습니다. 주문은 전혀 실행되지 않았습니다.")
+            return 0
 
         if args.command == "daily-summary":
             store = TradingStore()
@@ -84,10 +92,16 @@ def main() -> int:
 
         client = KiwoomReadClient(settings)
         try:
-            if args.command == "strategy-dry-run":
+            if args.command in {"strategy-dry-run", "strategy-loop"}:
+                if args.command == "strategy-loop" and args.loop_seconds < 30: raise ValueError("전략 반복 주기는 최소 30초여야 합니다.")
                 store = TradingStore()
                 try:
-                    results = DryRunStrategyRunner(MarketService(client), TradingSettings.load(), store).run_once()
+                    runner = DryRunStrategyRunner(MarketService(client), TradingSettings.load(), store)
+                    if args.command == "strategy-loop":
+                        print("Trend Pullback V1 Multi · DRY RUN 반복 실행 (Ctrl+C 종료, 주문 전송 없음)")
+                        runner.run_forever(args.loop_seconds, lambda results: print(" | ".join(f"{r.symbol}:{r.decision.status}" for r in results)))
+                        return 0
+                    results = runner.run_once()
                 finally:
                     store.close()
                 print("Trend Pullback V1 Multi · DRY RUN (주문 전송 없음)")
@@ -122,6 +136,9 @@ def main() -> int:
     except (KiwoomApiError, ValueError) as exc:
         print(f"요청 실패: {exc}")
         return 1
+    except KeyboardInterrupt:
+        print("\nDRY RUN 루프를 종료했습니다. 주문은 전혀 실행되지 않았습니다.")
+        return 0
 
     return 0
 

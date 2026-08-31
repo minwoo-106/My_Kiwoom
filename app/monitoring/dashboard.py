@@ -195,3 +195,26 @@ def run_dashboard(provider: DashboardDataProvider, *, refresh_seconds: float, on
             # API 요청 빈도는 Live의 화면 갱신 횟수와 별개로 제한합니다.
             import time
             time.sleep(refresh_seconds)
+
+
+def run_auto_dashboard(settings: Settings, *, interval_seconds: float, console: Console | None = None) -> None:
+    """5종목 DRY RUN과 관제 화면을 한 프로세스로 실행합니다. 주문은 하지 않습니다."""
+    from app.storage.sqlite import TradingStore
+    from app.strategy.runner import DryRunStrategyRunner
+    from app.strategy.settings import TradingSettings
+    import time
+    output = console or Console()
+    provider = DashboardDataProvider(settings, "005930")
+    store = TradingStore()
+    runner = DryRunStrategyRunner(MarketService(provider._client), TradingSettings.load(), store)
+    try:
+        with Live(render_dashboard(DashboardState()), console=output, refresh_per_second=4, screen=True) as live:
+            while True:
+                results = runner.run_once()
+                state = provider.refresh()
+                event_rows = [f"[{datetime.now():%H:%M:%S}] DRY RUN  {result.symbol} {result.decision.status} · {result.decision.reason}" for result in results]
+                state = DashboardState(account=state.account, quote=state.quote, api_status=state.api_status, api_error=state.api_error, api_requests=state.api_requests, last_api_success=state.last_api_success, started_at=state.started_at, events=tuple(event_rows[-5:]))
+                live.update(render_dashboard(state))
+                time.sleep(interval_seconds)
+    finally:
+        store.close(); provider.close()
