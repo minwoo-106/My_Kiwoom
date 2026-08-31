@@ -10,6 +10,7 @@ from app.kiwoom.account import AccountService
 from app.kiwoom.client import KiwoomApiError, KiwoomReadClient
 from app.kiwoom.market import MarketService
 from app.kiwoom.orders import MANUAL_CONFIRMATION, ManualMockOrderService
+from app.monitoring.dashboard import DashboardDataProvider, run_dashboard
 
 
 def _mask_account(account: str) -> str:
@@ -18,10 +19,12 @@ def _mask_account(account: str) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="키움 모의투자 MVP")
-    parser.add_argument("command", choices=["auth", "accounts", "portfolio", "quote", "manual-buy", "manual-sell"], help="실행할 기능")
+    parser.add_argument("command", choices=["auth", "accounts", "portfolio", "quote", "manual-buy", "manual-sell", "dashboard"], help="실행할 기능")
     parser.add_argument("--stock-code", default="005930", help="조회할 KRX 6자리 종목코드")
     parser.add_argument("--quantity", type=int, default=1, help="수동 주문 수량(MVP에서는 1주만 허용)")
     parser.add_argument("--confirm", default="", help=f"주문에만 필요한 확인 문구: {MANUAL_CONFIRMATION}")
+    parser.add_argument("--refresh-seconds", type=float, default=10.0, help="대시보드 API 조회 주기(최소 5초, 기본 10초)")
+    parser.add_argument("--once", action="store_true", help="대시보드를 한 번만 표시하고 종료")
     args = parser.parse_args()
 
     print("=" * 48)
@@ -50,6 +53,18 @@ def main() -> int:
                 order_service.close()
             print(f"모의 주문이 접수되었습니다. 주문번호: {order.order_number}")
             print("추가 주문 전 체결 상태를 확인하세요. 이 명령은 주문을 재시도하지 않습니다.")
+            return 0
+
+        if args.command == "dashboard":
+            if args.refresh_seconds < 5:
+                raise ValueError("대시보드 조회 주기는 API 부담을 막기 위해 최소 5초여야 합니다.")
+            provider = DashboardDataProvider(settings, args.stock_code)
+            try:
+                run_dashboard(provider, refresh_seconds=args.refresh_seconds, once=args.once)
+            except KeyboardInterrupt:
+                print("\n대시보드를 종료했습니다. 주문은 전혀 실행되지 않았습니다.")
+            finally:
+                provider.close()
             return 0
 
         client = KiwoomReadClient(settings)
