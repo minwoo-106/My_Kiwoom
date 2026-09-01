@@ -20,16 +20,25 @@ class SymbolResult:
     market_phase: str = "CLOSED"
 
 class DryRunStrategyRunner:
-    def __init__(self, market: MarketService, settings: TradingSettings, store: TradingStore, strategy: TrendPullbackV1 | None = None, risk: RiskManager | None = None, order_service: AutoMockOrderService | None = None, phase_provider=market_phase, sleep_fn=sleep) -> None:
+    def __init__(self, market: MarketService, settings: TradingSettings, store: TradingStore, strategy: TrendPullbackV1 | None = None, risk: RiskManager | None = None, order_service: AutoMockOrderService | None = None, phase_provider=market_phase, sleep_fn=sleep, now_provider=datetime.now) -> None:
         self.market, self.settings, self.store = market, settings, store
         self.strategy, self.risk = strategy or TrendPullbackV1(), risk or RiskManager()
         self.order_service = order_service
         self.phase_provider = phase_provider
         self.sleep_fn = sleep_fn
+        self.now_provider = now_provider
         self.states = {symbol: SymbolState(symbol) for symbol in settings.watchlist}
         self.estimated_assets: int | None = None
         self.last_reconcile_error: str | None = None
-        self._trading_date = datetime.now().date()
+        self._trading_date = self.now_provider().date()
+        self.last_market_data_at: datetime | None = None
+        self.store.record_program_start(timestamp=self.now_provider().isoformat(timespec="seconds"), mode="MOCK_AUTO" if order_service else "DRY_RUN")
+
+    def market_data_is_fresh(self) -> bool:
+        if self.last_market_data_at is None:
+            return False
+        age = (self.now_provider() - self.last_market_data_at).total_seconds()
+        return 0 <= age <= self.settings.stale_data_seconds
     def restore_from_account(self) -> tuple[dict[str, int], list]:
         account = AccountService(self.market.client)
         summary, holdings = account.portfolio()
@@ -52,7 +61,7 @@ class DryRunStrategyRunner:
         if not pending:
             return
         broker_orders = {fill.order_number: fill for fill in AccountService(self.market.client).filled_orders()}
-        now = datetime.now().isoformat(timespec="seconds")
+        now = self.now_provider().isoformat(timespec="seconds")
         for number, recorded in pending.items():
             fill = broker_orders.get(number)
             if fill is None:
@@ -81,12 +90,12 @@ class DryRunStrategyRunner:
         if self.order_service is None or decision.signal not in {"BUY", "SELL"}:
             return decision
         submitted = self.order_service.buy_market(code=symbol, quantity=self.settings.order_quantity) if decision.signal == "BUY" else self.order_service.sell_market(code=symbol, quantity=self.settings.order_quantity)
-        now = datetime.now().isoformat(timespec="seconds")
+        now = self.now_provider().isoformat(timespec="seconds")
         self.store.record_order(order_number=submitted.order_number, timestamp=now, symbol=symbol, side=decision.signal, quantity=self.settings.order_quantity, stop_price=decision.stop_price if decision.signal == "BUY" else None, target_price=decision.target_price if decision.signal == "BUY" else None)
         state.order_pending = True
         return Decision(StrategyStatus.ORDER_PENDING, f"모의 주문 접수 {submitted.order_number}: 체결 확인 대기", decision.signal, decision.score, decision.ema_fast, decision.ema_slow, decision.rsi, decision.atr, decision.stop_price, decision.target_price)
     def run_once(self) -> list[SymbolResult]:
-        today_date = datetime.now().date()
+        today_date = self.now_provider().date()
         if today_date != self._trading_date:
             # 일일 진입 한도는 새 거래일에만 초기화합니다. 보유·미체결 상태는 유지합니다.
             for state in self.states.values():
@@ -105,27 +114,37 @@ class DryRunStrategyRunner:
                 state.status, state.reason = decision.status, decision.reason
                 results.append(SymbolResult(symbol, decision, market_phase=phase))
             return results
+        data_was_stale = not self.market_data_is_fresh()
         for index, (symbol, state) in enumerate(self.states.items()):
             if index:
                 # 키움 모의투자는 동일 국내 조회 TR을 초당 1회로 제한합니다.
                 self.sleep_fn(1.05)
             try:
                 candles = self.market.completed_15m_candles(symbol)
+                # 수신 시각을 기준으로 API 연결이 살아 있는지 판단합니다. 완료 15분봉의
+                # 시각은 원래 15분 동안 변하지 않으므로 stale 판단 기준으로 쓰지 않습니다.
+                self.last_market_data_at = self.now_provider()
                 completed_price = candles[-1].close if candles else None
                 decision = self.strategy.evaluate(candles, state)
                 if decision.signal == "BUY":
-                    today = datetime.now().strftime("%Y-%m-%d")
+                    today = self.now_provider().strftime("%Y-%m-%d")
                     realized = self.store.today_realized_profit(today)
                     daily_loss_pct = (realized / self.estimated_assets * 100) if self.estimated_assets else 0.0
-                    reason = self.risk.buy_block_reason(state, open_positions=sum(s.holding for s in self.states.values()), daily_entries=self.store.today_entries(today), consecutive_losses=self.store.consecutive_losses(), daily_loss_pct=daily_loss_pct, api_ok=self.last_reconcile_error is None, market_open=phase == "OPEN")
-                    if reason: decision = Decision(StrategyStatus.RISK_BLOCKED, reason, ema_fast=decision.ema_fast, ema_slow=decision.ema_slow, rsi=decision.rsi, atr=decision.atr)
+                    reason = self.risk.buy_block_reason(state, open_positions=sum(s.holding for s in self.states.values()), daily_entries=self.store.today_entries(today), consecutive_losses=self.store.consecutive_losses(), daily_loss_pct=daily_loss_pct, api_ok=self.last_reconcile_error is None, market_open=phase == "OPEN", market_data_fresh=self.market_data_is_fresh(), emergency_stop=self.settings.emergency_stop)
+                    if reason:
+                        status = StrategyStatus.STALE_DATA if reason == "STALE_DATA" else StrategyStatus.RISK_BLOCKED
+                        decision = Decision(status, reason, ema_fast=decision.ema_fast, ema_slow=decision.ema_slow, rsi=decision.rsi, atr=decision.atr)
                 if self.last_reconcile_error is None:
                     decision = self._submit_signal(symbol, state, decision)
                 state.status, state.reason = decision.status, decision.reason
-                self.store.record_signal(timestamp=datetime.now().isoformat(timespec="seconds"), symbol=symbol, strategy="Trend Pullback V1 Multi", state=decision.status, signal=decision.signal, score=decision.score, price=None, ema20=decision.ema_fast, ema60=decision.ema_slow, rsi=decision.rsi, atr=decision.atr, reason=decision.reason, mock_order_enabled=self.order_service is not None)
+                self.store.record_signal(timestamp=self.now_provider().isoformat(timespec="seconds"), symbol=symbol, strategy="Trend Pullback V1 Multi", state=decision.status, signal=decision.signal, score=decision.score, price=None, ema20=decision.ema_fast, ema60=decision.ema_slow, rsi=decision.rsi, atr=decision.atr, reason=decision.reason, mock_order_enabled=self.order_service is not None)
             except Exception as exc:
-                decision = Decision(StrategyStatus.ERROR, str(exc)); state.status, state.reason = decision.status, decision.reason
+                # 마지막 정상 수신도 제한 시간을 넘겼다면 단순 오류보다 더 명확하게
+                # STALE_DATA로 표시해 신규 진입이 불가능한 상태임을 남깁니다.
+                decision = Decision(StrategyStatus.STALE_DATA, f"STALE_DATA: {exc}") if data_was_stale else Decision(StrategyStatus.ERROR, str(exc))
+                state.status, state.reason = decision.status, decision.reason
                 completed_price = None
+                self.store.record_signal(timestamp=self.now_provider().isoformat(timespec="seconds"), symbol=symbol, strategy="Trend Pullback V1 Multi", state=decision.status, signal=None, score=0, price=None, ema20=None, ema60=None, rsi=None, atr=None, reason=decision.reason, mock_order_enabled=self.order_service is not None)
             results.append(SymbolResult(symbol, decision, completed_price, phase))
         return results
 

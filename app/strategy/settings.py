@@ -14,10 +14,21 @@ class TradingSettings:
     new_buy_cutoff: str = "15:10"
     market_close: str = "15:30"
     market_holidays: tuple[str, ...] = ()
+    stale_data_seconds: int = 180
+    emergency_stop: bool = False
     @classmethod
     def load(cls) -> "TradingSettings":
         raw = os.getenv("WATCHLIST", ",".join(DEFAULT_WATCHLIST))
         symbols = tuple(x.strip() for x in raw.replace("\n", ",").split(",") if x.strip())
         if not symbols or any(not (x.isdigit() and len(x) == 6) for x in symbols): raise ValueError("WATCHLIST는 6자리 종목코드 목록이어야 합니다.")
         holidays = tuple(value.strip() for value in os.getenv("MARKET_HOLIDAYS", "").split(",") if value.strip())
-        return cls(watchlist=symbols, enable_mock_order=os.getenv("ENABLE_MOCK_ORDER", "false").lower() == "true", market_holidays=holidays)
+        stale_data_seconds = int(os.getenv("STALE_DATA_SECONDS", "180"))
+        if stale_data_seconds < 30:
+            raise ValueError("STALE_DATA_SECONDS는 API 보호를 위해 30초 이상이어야 합니다.")
+        return cls(
+            watchlist=symbols,
+            enable_mock_order=os.getenv("ENABLE_MOCK_ORDER", "false").lower() == "true",
+            market_holidays=holidays,
+            stale_data_seconds=stale_data_seconds,
+            emergency_stop=os.getenv("EMERGENCY_STOP", "false").lower() == "true",
+        )

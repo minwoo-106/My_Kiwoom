@@ -18,6 +18,7 @@ class StrategyStatus(StrEnum):
     COOLDOWN = "COOLDOWN"
     RISK_BLOCKED = "RISK_BLOCKED"
     ORDER_PENDING = "ORDER_PENDING"
+    STALE_DATA = "STALE_DATA"
     ERROR = "ERROR"
 
 

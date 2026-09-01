@@ -21,15 +21,38 @@ def _mask_account(account: str) -> str:
     return f"******{account[-4:]}" if len(account) >= 4 else "[unavailable]"
 
 
+def _format_number(value: float | None, *, suffix: str = "") -> str:
+    return "기록 없음" if value is None else f"{value:,.2f}{suffix}"
+
+
+def _print_weekly_summary(store: TradingStore, end_date: str) -> None:
+    summary = store.weekly_summary(end_date)
+    print(f"주간 모의운영 리포트 ({summary.start_date} ~ {summary.end_date})")
+    print(f"- 전체 체결 {summary.filled_orders}건 / 청산 거래 {summary.closed_trades}건")
+    print(f"- 승 {summary.wins} / 패 {summary.losses} / 승률 {_format_number(summary.win_rate, suffix='%')}")
+    print(f"- 실현손익 {summary.realized_profit:,}원 / 평균 이익 {_format_number(summary.average_profit, suffix='원')} / 평균 손실 {_format_number(summary.average_loss, suffix='원')}")
+    print(f"- Profit Factor {_format_number(summary.profit_factor)} / 최대 연속손실 {summary.max_consecutive_losses}회")
+    print(f"- BUY_SIGNAL {summary.buy_signals}회 / 실제 진입 {summary.actual_entries}회 / RISK_BLOCKED {summary.risk_blocked}회")
+    print(f"- API 오류 {summary.api_errors}회 / 프로그램 시작(재시작 포함) {summary.restarts}회")
+    print("- 차단 사유: " + (", ".join(f"{reason} {count}회" for reason, count in summary.block_reasons) or "없음"))
+    if summary.symbols:
+        print("종목별 청산 결과:")
+        for item in summary.symbols:
+            print(f"- {item.symbol}: 거래 {item.trades}회 / 손익 {item.realized_profit:,}원 / 승률 {_format_number(item.win_rate, suffix='%')}")
+    else:
+        print("종목별 청산 결과: 기록 없음")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="키움 모의투자 MVP")
-    parser.add_argument("command", choices=["auth", "accounts", "portfolio", "quote", "manual-buy", "manual-sell", "dashboard", "auto-dashboard", "auto-trade", "auto-trade-dashboard", "strategy-dry-run", "strategy-loop", "daily-summary"], help="실행할 기능")
+    parser.add_argument("command", choices=["auth", "accounts", "portfolio", "quote", "manual-buy", "manual-sell", "dashboard", "auto-dashboard", "auto-trade", "auto-trade-dashboard", "strategy-dry-run", "strategy-loop", "daily-summary", "weekly-report"], help="실행할 기능")
     parser.add_argument("--stock-code", default="005930", help="조회할 KRX 6자리 종목코드")
     parser.add_argument("--quantity", type=int, default=1, help="수동 주문 수량(MVP에서는 1주만 허용)")
     parser.add_argument("--confirm", default="", help=f"주문에만 필요한 확인 문구: {MANUAL_CONFIRMATION}")
     parser.add_argument("--refresh-seconds", type=float, default=10.0, help="대시보드 API 조회 주기(최소 5초, 기본 10초)")
     parser.add_argument("--once", action="store_true", help="대시보드를 한 번만 표시하고 종료")
     parser.add_argument("--loop-seconds", type=float, default=60.0, help="전략 반복 분석 주기(최소 30초, 기본 60초)")
+    parser.add_argument("--report-end-date", default=datetime.now().strftime("%Y-%m-%d"), help="주간 리포트 마지막 날짜(YYYY-MM-DD, 기본 오늘)")
     args = parser.parse_args()
 
     print("=" * 48)
@@ -118,6 +141,14 @@ def main() -> int:
             print(f"오늘 결과 ({summary.date}) · 모의 자동매매 기록")
             print(f"- 신호 {summary.signals}회 / 차단 {summary.blocked}회 / 매수 {summary.buys}회 / 매도 {summary.sells}회")
             print(f"- 실현손익: {summary.realized_profit:,}원")
+            return 0
+
+        if args.command == "weekly-report":
+            store = TradingStore()
+            try:
+                _print_weekly_summary(store, args.report_end_date)
+            finally:
+                store.close()
             return 0
 
         client = KiwoomReadClient(settings)

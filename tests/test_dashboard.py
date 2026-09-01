@@ -51,3 +51,10 @@ def test_restored_account_snapshot_is_reused_without_second_api_request():
         assert state.api_requests == 0
     finally:
         provider.close()
+
+
+def test_dashboard_clearly_shows_emergency_stop():
+    output = StringIO()
+    console = Console(file=output, width=150, height=60, color_system=None)
+    console.print(render_dashboard(DashboardState(emergency_stop=True, risk_status="긴급 정지: 신규 매수 차단")))
+    assert "신규 매수 즉시 중단" in output.getvalue()

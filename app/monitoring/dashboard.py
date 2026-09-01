@@ -42,6 +42,8 @@ class DashboardState:
     risk_status: str = "대기"
     daily_summary: str | None = None
     execution_mode: str = "DRY RUN(주문 전송 없음)"
+    emergency_stop: bool = False
+    last_market_data_at: datetime | None = None
     trades: tuple["TradeRow", ...] = ()
     api_status: str = "연결 대기"
     api_error: str | None = None
@@ -212,7 +214,7 @@ def _watch_panel(state: DashboardState) -> Panel:
         table.add_column(label, justify="right" if label in {"현재가", "등락률", "완료 15분봉", "점수"} else "left")
     if state.watch_rows:
         for row in state.watch_rows:
-            status_style = "red" if row.status in {"ERROR", "RISK_BLOCKED"} else "yellow" if row.status in {"BUY_SIGNAL", "PULLBACK"} else "white"
+            status_style = "red" if row.status in {"ERROR", "RISK_BLOCKED", "STALE_DATA"} else "yellow" if row.status in {"BUY_SIGNAL", "PULLBACK"} else "white"
             current_price = "-" if row.current_price is None else f"{row.current_price:,}원"
             completed_price = "-" if row.completed_price is None else f"{row.completed_price:,.0f}원"
             reason = row.reason if len(row.reason) <= 28 else f"{row.reason[:27]}…"
@@ -233,10 +235,12 @@ def _signal_panel(state: DashboardState) -> Panel:
     table.add_row("전략", state.strategy_status)
     table.add_row("시장", state.market_phase)
     table.add_row("위험관리", state.risk_status)
+    table.add_row("긴급 정지", "[bold red]신규 매수 즉시 중단[/bold red]" if state.emergency_stop else "꺼짐")
+    table.add_row("시장 데이터", state.last_market_data_at.strftime("%H:%M:%S 정상 수신") if state.last_market_data_at else "대기")
     table.add_row("주문 전송", state.execution_mode)
     if state.daily_summary:
         table.add_row("오늘 결과", state.daily_summary)
-    return Panel(table, title="[bold]전략 / 신호 통계[/bold]", border_style="yellow")
+    return Panel(table, title="[bold]전략 / 신호 통계[/bold]", border_style="red" if state.emergency_stop else "yellow")
 
 
 def _trades_panel(state: DashboardState) -> Panel:
@@ -321,7 +325,8 @@ def run_auto_dashboard(settings: Settings, *, interval_seconds: float, console: 
             daily = f"신호 {day_summary.signals} · 차단 {day_summary.blocked} · 실현 {day_summary.realized_profit:,}원"
             mode = "모의 자동주문 활성 · 체결 확인 후 상태 반영" if order_service else "DRY RUN(주문 전송 없음)"
             trades = tuple(TradeRow(item.timestamp, item.symbol, item.side, item.price, item.quantity, item.realized_profit, item.status) for item in store.recent_trades())
-            return DashboardState(account=state.account, api_status=state.api_status, api_error=state.api_error, api_requests=state.api_requests, last_api_success=state.last_api_success, started_at=state.started_at, watch_rows=tuple(WatchRow(result.symbol, result.completed_bar_price, str(result.decision.status), result.decision.reason, result.decision.score, result.decision.rsi, quotes.get(result.symbol).current_price if result.symbol in quotes else None, quotes.get(result.symbol).change_rate if result.symbol in quotes else None, quotes.get(result.symbol).name if result.symbol in quotes else "") for result in results), market_phase=phase, strategy_status="정상 분석" if phase != "CLOSED" else "장 마감 대기", risk_status="정상 (매수 제한 적용)", daily_summary=daily, execution_mode=mode, trades=trades, events=tuple(event_rows[-5:]))
+            risk_status = "긴급 정지: 신규 매수 차단" if runner.settings.emergency_stop else "정상 (매수 제한 적용)"
+            return DashboardState(account=state.account, api_status=state.api_status, api_error=state.api_error, api_requests=state.api_requests, last_api_success=state.last_api_success, started_at=state.started_at, watch_rows=tuple(WatchRow(result.symbol, result.completed_bar_price, str(result.decision.status), result.decision.reason, result.decision.score, result.decision.rsi, quotes.get(result.symbol).current_price if result.symbol in quotes else None, quotes.get(result.symbol).change_rate if result.symbol in quotes else None, quotes.get(result.symbol).name if result.symbol in quotes else "") for result in results), market_phase=phase, strategy_status="정상 분석" if phase != "CLOSED" else "장 마감 대기", risk_status=risk_status, daily_summary=daily, execution_mode=mode, emergency_stop=runner.settings.emergency_stop, last_market_data_at=runner.last_market_data_at, trades=trades, events=tuple(event_rows[-5:]))
         if once:
             output.print(render_dashboard(refresh_cycle()))
             return

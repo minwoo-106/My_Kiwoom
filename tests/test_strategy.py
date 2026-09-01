@@ -64,7 +64,7 @@ def test_reconcile_filled_mock_order_updates_position_and_journal(tmp_path: Path
         assert state.holding and state.average_price == 70_000
         assert state.stop_price == 69_000
         assert store.pending_orders() == []
-        assert store.today_entries("2026-08-31") == 1
+        assert store.today_entries(datetime.now().strftime("%Y-%m-%d")) == 1
     finally:
         store.close()
 

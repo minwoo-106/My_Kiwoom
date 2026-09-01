@@ -142,6 +142,38 @@ MARKET_HOLIDAYS=공식 KRX 휴장일을 YYYY-MM-DD 형식으로 쉼표로 입력
 
 `# 기능 수정 후 자동 테스트를 실행합니다.`
 
+## 7. 주간 운영 리포트
+
+```cmd
+.venv\Scripts\python.exe -m app.main weekly-report
+```
+
+`# 최근 7일의 체결·승패·승률·손익·Profit Factor·연속손실·종목별 성과를 집계합니다.`
+`# BUY_SIGNAL, 실제 진입, RISK_BLOCKED 사유, API 오류, 프로그램 시작 횟수도 함께 표시합니다.`
+
+```cmd
+.venv\Scripts\python.exe -m app.main weekly-report --report-end-date 2026-09-04
+```
+
+`# 지정한 날짜를 마지막 날로 하는 7일 리포트를 출력합니다.`
+
+## 8. 긴급 신규 매수 중단
+
+`.env`에 아래처럼 입력하면 다음 감시 주기부터 신규 모의 매수가 모두 중단됩니다.`
+
+```text
+EMERGENCY_STOP=true
+```
+
+`# 대시보드에 빨간색으로 표시됩니다. 기존 보유 종목의 손절·익절·추세청산 매도는 안전을 위해 계속 허용합니다.`
+`# 다시 켜려면 EMERGENCY_STOP=false로 바꾸고 감시 프로그램을 재시작하세요.`
+
+```text
+STALE_DATA_SECONDS=180
+```
+
+`# 마지막 정상 시장 데이터 수신 뒤 180초 이상 새 데이터를 받지 못하면 STALE_DATA로 표시하고 신규 매수를 차단합니다.`
+
 ## 현재 자동매매 상태
 
 - 평상시에는 `auto-dashboard` 하나만 켜면 됩니다. 이 화면은 주문 없는 안전한 DRY RUN입니다.

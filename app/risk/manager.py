@@ -11,8 +11,10 @@ class RiskConfig:
 
 class RiskManager:
     def __init__(self, config: RiskConfig | None = None) -> None: self.config = config or RiskConfig()
-    def buy_block_reason(self, state: SymbolState, *, open_positions: int, daily_entries: int, consecutive_losses: int, daily_loss_pct: float, api_ok: bool, market_open: bool) -> str | None:
+    def buy_block_reason(self, state: SymbolState, *, open_positions: int, daily_entries: int, consecutive_losses: int, daily_loss_pct: float, api_ok: bool, market_open: bool, market_data_fresh: bool = True, emergency_stop: bool = False) -> str | None:
+        if emergency_stop: return "EMERGENCY_STOP"
         if not api_ok: return "API_ERROR"
+        if not market_data_fresh: return "STALE_DATA"
         if not market_open: return "MARKET_CLOSED"
         if state.holding: return "ALREADY_HOLDING"
         if state.order_pending: return "ORDER_PENDING"
