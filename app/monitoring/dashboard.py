@@ -232,7 +232,7 @@ def _account_panel(state: DashboardState) -> Panel:
 
 def _watch_panel(state: DashboardState) -> Panel:
     table = Table(expand=True, box=None, header_style="bold cyan")
-    for label in ("종목", "현재가", "등락률", "완료 15분봉", "전략 상태", "사유", "뉴스", "점수"):
+    for label in ("종목", "현재가", "등락률", "완료 15분봉", "전략 상태", "사유", "공시", "점수"):
         table.add_column(label, justify="right" if label in {"현재가", "등락률", "완료 15분봉", "점수"} else "left")
     if state.watch_rows:
         news_styles = {"양호": "green", "주의": "yellow", "위험": "bold red", "오류/지연": "bold red", "미설정": "grey62"}
@@ -261,8 +261,8 @@ def _signal_panel(state: DashboardState) -> Panel:
     table.add_row("긴급 정지", "[bold red]신규 매수 즉시 중단[/bold red]" if state.emergency_stop else "꺼짐")
     table.add_row("시장 데이터", state.last_market_data_at.strftime("%H:%M:%S 정상 수신") if state.last_market_data_at else "대기")
     news_style = {"양호": "green", "주의": "yellow", "위험": "bold red", "오류/지연": "bold red", "미설정": "grey62"}.get(state.news_overview, "white")
-    table.add_row("뉴스 위험", Text(state.news_overview, style=news_style))
-    table.add_row("뉴스 갱신", state.news_checked_at.strftime("%H:%M:%S") if state.news_checked_at else "미설정")
+    table.add_row("공시 위험", Text(state.news_overview, style=news_style))
+    table.add_row("공시 갱신", state.news_checked_at.strftime("%H:%M:%S") if state.news_checked_at else "미설정")
     table.add_row("주문 전송", state.execution_mode)
     if state.daily_summary:
         table.add_row("오늘 결과", state.daily_summary)

@@ -16,7 +16,7 @@ class Source:
 
 def test_news_monitor_marks_official_serious_event_as_risk():
     now = datetime(2026, 9, 1, 10, 0)
-    monitor = NewsMonitor(NewsSettings(naver_client_id="x", naver_client_secret="y"), naver=Source([NewsItem("삼성전자 거래정지 관련 공시", "", "one", now, "OPENDART")]), clock=lambda: now)
+    monitor = NewsMonitor(NewsSettings(opendart_api_key="x"), dart=Source([NewsItem("삼성전자 거래정지 관련 공시", "", "one", now, "OPENDART")]), clock=lambda: now)
     try:
         state = monitor.refresh(("005930",))["005930"]
         assert state.level == NewsLevel.RISK
@@ -27,8 +27,8 @@ def test_news_monitor_marks_official_serious_event_as_risk():
 
 def test_news_monitor_marks_caution_and_api_failure_without_order_action():
     now = datetime(2026, 9, 1, 10, 0)
-    caution = NewsMonitor(NewsSettings(naver_client_id="x", naver_client_secret="y"), naver=Source([NewsItem("실적 부진 전망", "", "one", now, "NAVER")]), clock=lambda: now)
-    failed = NewsMonitor(NewsSettings(naver_client_id="x", naver_client_secret="y"), naver=Source(error=RuntimeError("timeout")), clock=lambda: now)
+    caution = NewsMonitor(NewsSettings(opendart_api_key="x"), dart=Source([NewsItem("실적 부진 관련 공시", "", "one", now, "OPENDART")]), clock=lambda: now)
+    failed = NewsMonitor(NewsSettings(opendart_api_key="x"), dart=Source(error=RuntimeError("timeout")), clock=lambda: now)
     try:
         assert caution.refresh(("005930",))["005930"].level == NewsLevel.CAUTION
         assert failed.refresh(("005930",))["005930"].level == NewsLevel.UNAVAILABLE
@@ -43,7 +43,7 @@ def test_news_monitor_uses_disabled_and_stale_states_without_keys():
         assert disabled.refresh(("005930",))["005930"].level == NewsLevel.DISABLED
     finally:
         disabled.close()
-    monitor = NewsMonitor(NewsSettings(naver_client_id="x", naver_client_secret="y", poll_seconds=300, stale_seconds=1_800), naver=Source([NewsItem("정상 기사", "", "one", now, "NAVER")]), clock=lambda: now)
+    monitor = NewsMonitor(NewsSettings(opendart_api_key="x", poll_seconds=300, stale_seconds=1_800), dart=Source([NewsItem("정상 공시", "", "one", now, "OPENDART")]), clock=lambda: now)
     try:
         assert monitor.refresh(("005930",))["005930"].level == NewsLevel.GOOD
         monitor._last_success = now - timedelta(seconds=1_801)

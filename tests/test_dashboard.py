@@ -42,7 +42,7 @@ def test_dashboard_renders_mock_only_and_placeholder_statuses():
     assert "삼성전자 (005930)" in rendered
     assert "DRY RUN(주문 전송 없음)" in rendered
     assert "FILLED" in rendered
-    assert "뉴스 위험" in rendered and "주의" in rendered
+    assert "공시 위험" in rendered and "주의" in rendered
 
 
 def test_restored_account_snapshot_is_reused_without_second_api_request():
