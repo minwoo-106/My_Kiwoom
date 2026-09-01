@@ -23,6 +23,7 @@ def test_dashboard_renders_mock_only_and_placeholder_statuses():
         market_phase="OPEN",
         strategy_status="정상 분석",
         risk_status="정상 (DRY RUN 차단 적용)",
+        news_overview="주의",
         trades=(TradeRow("2026-08-31T13:00:00", "005930", "BUY", 70_000, 1, 0, "FILLED"),),
     )
     output = StringIO()
@@ -41,6 +42,7 @@ def test_dashboard_renders_mock_only_and_placeholder_statuses():
     assert "삼성전자 (005930)" in rendered
     assert "DRY RUN(주문 전송 없음)" in rendered
     assert "FILLED" in rendered
+    assert "뉴스 위험" in rendered and "주의" in rendered
 
 
 def test_restored_account_snapshot_is_reused_without_second_api_request():
