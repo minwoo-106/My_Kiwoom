@@ -26,6 +26,7 @@ from app.kiwoom.market import MarketService, Quote
 class AccountSnapshot:
     deposit: int | None = None
     estimated_assets: int | None = None
+    total_purchase: int | None = None
     total_profit_loss: int | None = None
     holdings: tuple[Holding, ...] = ()
 
@@ -111,6 +112,7 @@ class DashboardDataProvider:
                 account=AccountSnapshot(
                     deposit=summary["deposit"],
                     estimated_assets=summary["estimated_assets"],
+                    total_purchase=summary.get("total_purchase"),
                     total_profit_loss=summary["total_profit_loss"],
                     holdings=tuple(holdings),
                 ),
@@ -150,6 +152,7 @@ class DashboardDataProvider:
             account=AccountSnapshot(
                 deposit=summary["deposit"],
                 estimated_assets=summary["estimated_assets"],
+                total_purchase=summary.get("total_purchase"),
                 total_profit_loss=summary["total_profit_loss"],
                 holdings=tuple(holdings),
             ),
@@ -202,9 +205,23 @@ def _account_panel(state: DashboardState) -> Panel:
     table.add_row("총 평가금", _money(state.account.estimated_assets))
     table.add_row("총 손익", _signed_money(state.account.total_profit_loss))
     table.add_row("보유 종목", f"{len(state.account.holdings)}개")
+    invested = state.account.total_purchase
+    if invested is None:
+        invested = sum(holding.average_price * holding.quantity for holding in state.account.holdings)
+    evaluated = sum(holding.evaluation_amount or holding.current_price * holding.quantity for holding in state.account.holdings)
+    holding_profit = evaluated - invested
+    return_rate = holding_profit / invested * 100 if invested else None
+    table.add_row("주식 매입금", _money(invested))
+    table.add_row("주식 평가금", _money(evaluated))
+    table.add_row("보유 손익", _signed_money(holding_profit))
+    table.add_row("보유 수익률", "계산 불가" if return_rate is None else f"{return_rate:+.2f}%")
     for holding in state.account.holdings:
         invested = holding.average_price * holding.quantity
-        table.add_row(f"{holding.name} ({holding.code.lstrip('A')})", f"{holding.quantity}주 · 매입 {invested:,}원")
+        evaluated = holding.evaluation_amount or holding.current_price * holding.quantity
+        profit = holding.profit_loss if holding.profit_loss else evaluated - invested
+        return_rate = profit / invested * 100 if invested else None
+        rate_text = "계산 불가" if return_rate is None else f"{return_rate:+.2f}%"
+        table.add_row(f"{holding.name} ({holding.code.lstrip('A')})", f"{holding.quantity}주 · 매입 {invested:,}원 · 평가 {evaluated:,}원 · {profit:+,}원 ({rate_text})")
     return Panel(table, title="[bold]계좌 현황[/bold]", border_style="green")
 
 
