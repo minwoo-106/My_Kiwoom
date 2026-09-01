@@ -54,11 +54,14 @@ class DashboardState:
 @dataclass(frozen=True)
 class WatchRow:
     symbol: str
-    price: float | None
+    completed_price: float | None
     status: str
     reason: str
     score: float = 0.0
     rsi: float | None = None
+    current_price: int | None = None
+    change_rate: str | None = None
+    name: str = ""
 
 
 @dataclass(frozen=True)
@@ -155,6 +158,24 @@ class DashboardDataProvider:
             events=tuple(self._events),
         )
 
+    def watch_quotes(self, symbols: tuple[str, ...], *, sleep_fn) -> dict[str, Quote]:
+        """5종목 현재가를 공식 ka10001로 순차 조회합니다.
+
+        같은 시세 TR을 초당 한 번보다 자주 호출하지 않도록 종목 사이에 대기합니다.
+        일부 종목의 실패는 나머지 화면·전략을 멈추게 하지 않습니다.
+        """
+        market = MarketService(self._client)
+        quotes: dict[str, Quote] = {}
+        for index, symbol in enumerate(symbols):
+            if index:
+                sleep_fn(1.05)
+            try:
+                quotes[symbol] = market.quote(symbol)
+                self._api_requests += 1
+            except (KiwoomApiError, ValueError) as exc:
+                self._events.appendleft(f"[{datetime.now():%H:%M:%S}] WARN  {symbol} 현재가 조회 실패: {exc}")
+        return quotes
+
 
 def _money(value: int | None) -> str:
     return "조회 대기" if value is None else f"{value:,}원"
@@ -179,23 +200,29 @@ def _account_panel(state: DashboardState) -> Panel:
     table.add_row("총 평가금", _money(state.account.estimated_assets))
     table.add_row("총 손익", _signed_money(state.account.total_profit_loss))
     table.add_row("보유 종목", f"{len(state.account.holdings)}개")
+    for holding in state.account.holdings:
+        invested = holding.average_price * holding.quantity
+        table.add_row(f"{holding.name} ({holding.code.lstrip('A')})", f"{holding.quantity}주 · 매입 {invested:,}원")
     return Panel(table, title="[bold]계좌 현황[/bold]", border_style="green")
 
 
 def _watch_panel(state: DashboardState) -> Panel:
     table = Table(expand=True, box=None, header_style="bold cyan")
-    for label in ("종목", "완료 15분봉", "전략 상태", "사유", "점수"):
-        table.add_column(label, justify="right" if label in {"완료 15분봉", "점수"} else "left")
+    for label in ("종목", "현재가", "등락률", "완료 15분봉", "전략 상태", "사유", "점수"):
+        table.add_column(label, justify="right" if label in {"현재가", "등락률", "완료 15분봉", "점수"} else "left")
     if state.watch_rows:
         for row in state.watch_rows:
             status_style = "red" if row.status in {"ERROR", "RISK_BLOCKED"} else "yellow" if row.status in {"BUY_SIGNAL", "PULLBACK"} else "white"
-            price = "-" if row.price is None else f"{row.price:,.0f}원"
+            current_price = "-" if row.current_price is None else f"{row.current_price:,}원"
+            completed_price = "-" if row.completed_price is None else f"{row.completed_price:,.0f}원"
             reason = row.reason if len(row.reason) <= 28 else f"{row.reason[:27]}…"
-            table.add_row(row.symbol, price, Text(row.status, style=status_style), reason, f"{row.score:.2f}" if row.score else "-")
+            rate_style = "red" if (row.change_rate or "").startswith("-") else "green"
+            symbol = f"{row.name} ({row.symbol})" if row.name else row.symbol
+            table.add_row(symbol, current_price, Text(row.change_rate or "-", style=rate_style), completed_price, Text(row.status, style=status_style), reason, f"{row.score:.2f}" if row.score else "-")
     elif state.quote is None:
-        table.add_row("조회 대기", "-", "-", "NOT STARTED", "-")
+        table.add_row("조회 대기", "-", "-", "-", "NOT STARTED", "-", "-")
     else:
-        table.add_row(state.quote.code, f"{state.quote.current_price:,}원", "단일 시세 조회", "대시보드 모드", "-")
+        table.add_row(state.quote.code, f"{state.quote.current_price:,}원", state.quote.change_rate or "-", "-", "단일 시세 조회", "대시보드 모드", "-")
     return Panel(table, title="[bold]5종목 감시 상태[/bold]", border_style="cyan")
 
 
@@ -288,12 +315,13 @@ def run_auto_dashboard(settings: Settings, *, interval_seconds: float, console: 
             label = "MOCK AUTO" if order_service else "DRY RUN"
             event_rows = [f"[{datetime.now():%H:%M:%S}] {label}  {result.symbol} {result.decision.status} · {result.decision.reason}" for result in results]
             phase = results[0].market_phase if results else "CLOSED"
+            quotes = provider.watch_quotes(tuple(result.symbol for result in results), sleep_fn=time.sleep) if phase != "CLOSED" else {}
             state = provider.cached_state() if phase == "CLOSED" and provider.cached_state().last_api_success else provider.refresh(include_quote=False)
             day_summary = store.daily_summary(datetime.now().strftime("%Y-%m-%d"))
             daily = f"신호 {day_summary.signals} · 차단 {day_summary.blocked} · 실현 {day_summary.realized_profit:,}원"
             mode = "모의 자동주문 활성 · 체결 확인 후 상태 반영" if order_service else "DRY RUN(주문 전송 없음)"
             trades = tuple(TradeRow(item.timestamp, item.symbol, item.side, item.price, item.quantity, item.realized_profit, item.status) for item in store.recent_trades())
-            return DashboardState(account=state.account, api_status=state.api_status, api_error=state.api_error, api_requests=state.api_requests, last_api_success=state.last_api_success, started_at=state.started_at, watch_rows=tuple(WatchRow(result.symbol, result.completed_bar_price, str(result.decision.status), result.decision.reason, result.decision.score, result.decision.rsi) for result in results), market_phase=phase, strategy_status="정상 분석" if phase != "CLOSED" else "장 마감 대기", risk_status="정상 (매수 제한 적용)", daily_summary=daily, execution_mode=mode, trades=trades, events=tuple(event_rows[-5:]))
+            return DashboardState(account=state.account, api_status=state.api_status, api_error=state.api_error, api_requests=state.api_requests, last_api_success=state.last_api_success, started_at=state.started_at, watch_rows=tuple(WatchRow(result.symbol, result.completed_bar_price, str(result.decision.status), result.decision.reason, result.decision.score, result.decision.rsi, quotes.get(result.symbol).current_price if result.symbol in quotes else None, quotes.get(result.symbol).change_rate if result.symbol in quotes else None, quotes.get(result.symbol).name if result.symbol in quotes else "") for result in results), market_phase=phase, strategy_status="정상 분석" if phase != "CLOSED" else "장 마감 대기", risk_status="정상 (매수 제한 적용)", daily_summary=daily, execution_mode=mode, trades=trades, events=tuple(event_rows[-5:]))
         if once:
             output.print(render_dashboard(refresh_cycle()))
             return

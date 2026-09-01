@@ -16,7 +16,7 @@ def test_dashboard_renders_mock_only_and_placeholder_statuses():
         api_requests=2,
         last_api_success=datetime(2026, 8, 31, 13, 0, 0),
         watch_rows=(
-            WatchRow("005930", 70_000, "PULLBACK", "EMA20 부근 눌림"),
+            WatchRow("005930", 70_000, "PULLBACK", "EMA20 부근 눌림", current_price=70_200, change_rate="0.29", name="삼성전자"),
             WatchRow("000660", 200_000, "RISK_BLOCKED", "MAX_OPEN_POSITIONS"),
         ),
         market_phase="OPEN",
@@ -35,6 +35,9 @@ def test_dashboard_renders_mock_only_and_placeholder_statuses():
     assert "005930" in rendered
     assert "000660" in rendered
     assert "완료 15분봉" in rendered
+    assert "현재가" in rendered
+    assert "70,200원" in rendered
+    assert "삼성전자 (005930)" in rendered
     assert "DRY RUN(주문 전송 없음)" in rendered
     assert "FILLED" in rendered
 
